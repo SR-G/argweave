@@ -38,7 +38,7 @@ type Config struct {
 }
 `)
 	output := filepath.Join(t.TempDir(), "schema.json")
-	if err := run("Config", source, "", "", output, "", false, "", "", "", "Schema"); err != nil {
+	if err := run("Config", source, "", "", output, "", false, "", "", "", "Schema", MARKER_TAG_LABEL_DEFAULT); err != nil {
 		t.Fatalf("run schema: %v", err)
 	}
 	data, err := os.ReadFile(output)
@@ -56,7 +56,7 @@ type Config struct {
 func TestStrictSchemaDisallowsUnknownProperties(t *testing.T) {
 	source := writeSource(t, "package sample\ntype Config struct { Port int `arg:\"long=port,required\"` }\n")
 	output := filepath.Join(t.TempDir(), "schema.json")
-	if err := run("Config", source, "", "", output, "", true, "", "", "", "Schema"); err != nil {
+	if err := run("Config", source, "", "", output, "", true, "", "", "", "Schema", MARKER_TAG_LABEL_DEFAULT); err != nil {
 		t.Fatalf("run strict schema: %v", err)
 	}
 	data, err := os.ReadFile(output)

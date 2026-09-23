@@ -38,8 +38,13 @@ import (
 )
 
 const (
-	startMarker = "<!-- weavedoc:start -->"
-	endMarker   = "<!-- weavedoc:end -->"
+	MARKER_TAG_PREFIX = "<!-- "
+	MARKER_TAG_SUFFIX = " -->"
+
+	MARKER_TAG_BEGIN = ":start"
+	MARKER_TAG_END   = ":end"
+
+	MARKER_TAG_LABEL_DEFAULT = "weavedoc"
 )
 
 func main() {
@@ -55,16 +60,21 @@ func main() {
 		completionOut = flag.String("completion-out", "", "write static completion to this path instead of stdout")
 		commandName   = flag.String("name", "", "command name used in generated completion (defaults to -type)")
 		title         = flag.String("title", "Configuration Reference", "title used in full page mode")
+		marker        = flag.String("marker", "Name of the label", "key used in the HTML marker in edit mode, default is 'weavedoc'")
 	)
 	flag.Parse()
 
-	if err := run(*typeName, *file, *out, *edit, *schema, *fields, *strict, *completion, *completionOut, *commandName, *title); err != nil {
+	if err := run(*typeName, *file, *out, *edit, *schema, *fields, *strict, *completion, *completionOut, *commandName, *title, *marker); err != nil {
 		fmt.Fprintln(os.Stderr, "weavedoc:", err)
 		os.Exit(1)
 	}
 }
 
-func run(typeName, file, out, edit, schema, fieldNames string, strictSchema bool, completion, completionOut, commandName, title string) error {
+func buildMakerTag(label string, tag string) string {
+	return MARKER_TAG_PREFIX + label + tag + MARKER_TAG_SUFFIX
+}
+
+func run(typeName, file, out, edit, schema, fieldNames string, strictSchema bool, completion, completionOut, commandName, title, marker string) error {
 	if typeName == "" {
 		return fmt.Errorf("-type is required")
 	}
@@ -97,7 +107,15 @@ func run(typeName, file, out, edit, schema, fieldNames string, strictSchema bool
 	}
 
 	if edit != "" {
-		if err := injectIntoFile(edit, table); err != nil {
+		// MARKER_BLOCK_START = MARKER_TAG_PREFIX + MARKER_TAG_LABEL_DEFAULT + MARKER_TAG_BEGIN + MARKER_TAG_SUFFIX
+		// MARKER_BLOCK_END   = MARKER_TAG_PREFIX + MARKER_TAG_LABEL_DEFAULT + MARKER_TAG_END + MARKER_TAG_SUFFIX
+		markerBlockStart := buildMakerTag(MARKER_TAG_LABEL_DEFAULT, MARKER_TAG_BEGIN)
+		markerBlockEnd := buildMakerTag(MARKER_TAG_LABEL_DEFAULT, MARKER_TAG_END)
+		if marker != "" {
+			markerBlockStart = buildMakerTag(marker, MARKER_TAG_BEGIN)
+			markerBlockEnd = buildMakerTag(marker, MARKER_TAG_END)
+		}
+		if err := injectIntoFile(edit, table, markerBlockStart, markerBlockEnd); err != nil {
 			return err
 		}
 	}
@@ -663,20 +681,20 @@ func renderStaticCompletion(shell, name string, fields []docField) (string, erro
 	}
 }
 
-func injectIntoFile(path, table string) error {
+func injectIntoFile(path, table string, markerBlockStart string, markerBlockEnd string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", path, err)
 	}
 	content := string(data)
 
-	startIdx := strings.Index(content, startMarker)
-	endIdx := strings.Index(content, endMarker)
+	startIdx := strings.Index(content, markerBlockStart)
+	endIdx := strings.Index(content, markerBlockEnd)
 	if startIdx == -1 || endIdx == -1 || endIdx < startIdx {
-		return fmt.Errorf("markers %q / %q not found (in this order) in %s", startMarker, endMarker, path)
+		return fmt.Errorf("markers %q / %q not found (in this order) in %s", markerBlockStart, markerBlockEnd, path)
 	}
 
-	before := content[:startIdx+len(startMarker)]
+	before := content[:startIdx+len(markerBlockStart)]
 	after := content[endIdx:]
 	newContent := before + "\n" + table + "\n" + after
 
