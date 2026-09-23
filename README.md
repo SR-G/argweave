@@ -606,10 +606,11 @@ go vet ./...
 go generate ./...
 git diff --exit-code
 
+TAG="0.1.0"
 git checkout master
 git pull --ff-only origin master
-git tag -a v0.1.0 -m "Release v0.1.0"
-git push origin v0.1.0
+git tag -a v${TAG} -m "Release v${TAG}$"
+git push origin v${TAG}
 ```
 
 The tag push starts the release workflow. After the verification job succeeds, GitHub creates the release for `v0.1.0` and fills its notes from merged pull requests and commit history. The workflow accepts tags matching `vMAJOR.MINOR.PATCH`, such as `v1.0.0` or `v1.2.3`.
