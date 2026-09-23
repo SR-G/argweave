@@ -13,7 +13,7 @@ import (
 	"os"
 	"time"
 
-	"forgejo.tensin.org/SR-G/argweave"
+	"github.com/SR-G/argweave"
 )
 
 //go:generate go run ../../cmd/weavedoc -type=Config -fields=long,short,env,default,required,description -file=main.go -out=CONFIG.md

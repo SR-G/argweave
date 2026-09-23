@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	argweave "forgejo.tensin.org/SR-G/argweave"
+	argweave "github.com/SR-G/argweave"
 )
 
 func TestRenderTableIncludesMetadataAndEscapesMarkdown(t *testing.T) {

@@ -8,7 +8,7 @@
 </p>
 
 
-`argweave` is a small Go library for defining in a flexible way CLI flags, environment variable bindings, and file-based configuration, through struct tags, inspired by the [Rust `clap`](https://docs.rs/clap) crate. Hence avoiding to use a combination of multiple libraries doing a sub-set of these features, or a way heavier library.
+`argweave` is a small Go library for defining in a flexible way CLI flags, environment variable bindings, and file-based configuration, through struct tags. Hence avoiding to use a combination of multiple libraries doing a sub-set of these features, or a way heavier library.
 
 - Define options once in a struct using tags.
 - Map each option to a short flag (`-p`), a long flag (`--port`), one or more aliases, a positional argument, and/or an environment variable (`PORT`).
@@ -97,11 +97,11 @@ No library is universally better. The important design choice is whether the app
 ## Installation
 
 ```bash
-go get forgejo.tensin.org/SR-G/argweave
+go get github.com/SR-G/argweave
 ```
 
 ```go
-import argweave "forgejo.tensin.org/SR-G/argweave"
+import argweave "github.com/SR-G/argweave"
 ```
 
 ## Feature 1 — Defining options via struct tags
@@ -479,14 +479,14 @@ The generated table also includes the Go type, help group, `requires` and `confl
 Use `-fields` to generate documentation with a selected, comma-separated list of Markdown columns. Supported names are `group`, `type`, `long`, `short`, `aliases`, `positional`, `env`, `required`, `default`, `requires`, `conflicts`, `behavior`, and `description`. The requested column order is preserved, duplicate names are ignored, and unknown names return an error. An empty value displays all columns. This option affects Markdown output; JSON Schema always contains its complete metadata:
 
 ```bash
-go run forgejo.tensin.org/SR-G/argweave/cmd/weavedoc -type=Config -file=config.go -fields=long,short,required,description -out=docs/CONFIG.md
-go run forgejo.tensin.org/SR-G/argweave/cmd/weavedoc -type=Config -file=config.go -schema=docs/config.schema.json
+go run github.com/SR-G/argweave/cmd/weavedoc -type=Config -file=config.go -fields=long,short,required,description -out=docs/CONFIG.md
+go run github.com/SR-G/argweave/cmd/weavedoc -type=Config -file=config.go -schema=docs/config.schema.json
 ```
 
 Add a `//go:generate` directive next to your struct:
 
 ```go
-//go:generate go run forgejo.tensin.org/SR-G/argweave/cmd/weavedoc -type=Config -file=config.go -out=docs/CONFIG.md
+//go:generate go run github.com/SR-G/argweave/cmd/weavedoc -type=Config -file=config.go -out=docs/CONFIG.md
 type Config struct {
     Port int `arg:"short=p,long=port,env=PORT,default=8080,help=Port number to listen on"`
     // ...
@@ -504,7 +504,7 @@ go generate ./...
 Writes a complete, standalone Markdown page with an `# <title>` header to the given path.
 
 ```bash
-go run forgejo.tensin.org/SR-G/argweave/cmd/weavedoc -type=Config -file=config.go -out=docs/CONFIG.md -title="Configuration Reference"
+go run github.com/SR-G/argweave/cmd/weavedoc -type=Config -file=config.go -out=docs/CONFIG.md -title="Configuration Reference"
 ```
 
 ### Edit mode (`-edit`)
@@ -519,7 +519,7 @@ Injects the generated table into an existing Markdown file, such as your `README
 ```
 
 ```bash
-go run forgejo.tensin.org/SR-G/argweave/cmd/weavedoc -type=Config -file=config.go -edit=README.md
+go run github.com/SR-G/argweave/cmd/weavedoc -type=Config -file=config.go -edit=README.md
 ```
 
 Everything between the two markers is replaced on every run, so the markers themselves must stay untouched.
@@ -529,7 +529,7 @@ Everything between the two markers is replaced on every run, so the markers them
 Writes a JSON Schema document for editor and external validation tooling. Built-in Go scalar types map to JSON Schema types, slices become arrays, required fields are listed in `required`, and argweave-specific details are retained as `x-argweave-*` extensions:
 
 ```bash
-go run forgejo.tensin.org/SR-G/argweave/cmd/weavedoc -type=Config -file=config.go -schema=docs/config.schema.json
+go run github.com/SR-G/argweave/cmd/weavedoc -type=Config -file=config.go -schema=docs/config.schema.json
 ```
 
 Use `-strict-schema` to emit `additionalProperties: false`. Fields marked both `required` and `default` are not emitted as JSON Schema required properties because the runtime default satisfies them.
@@ -578,7 +578,7 @@ go run ./examples/basic --api-key secret input.txt --print-config
 - No subcommands: this library focuses purely on a single flat (or flattened) set of flags, positional arguments, and environment variables, matching the scope of a configuration library.
 - `weavedoc` only looks at the AST of the given file or files, so the target struct (and any embedded sub-structs) must be defined, not just referenced, in `-file` or in the directory it points at.
 - Runtime flags, environment handling, help rendering, and config parsing use only standard library packages (`reflect`, `os`, `strconv`, `strings`, `time`, `encoding`, and `encoding/json`); `go/ast`, `go/parser`, and `go/token` are used by `weavedoc`. `github.com/BurntSushi/toml` is the sole third-party dependency, used only for TOML config files.
-
+- Somehow inspired by the [Rust clap crate](https://docs.rs/clap).
 
 
 ## Dev Activities

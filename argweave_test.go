@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	clap "forgejo.tensin.org/SR-G/argweave"
+	"github.com/SR-G/argweave"
 )
 
 // testConfig exercises every feature the library supports: short/long
@@ -26,7 +26,7 @@ type testConfig struct {
 
 func TestNumericWidthsAndCustomCollections(t *testing.T) {
 	var cfg widthConfig
-	parser, err := clap.New(&cfg, clap.AppConfig{Providers: []clap.ProviderKind{clap.ProviderFlags}})
+	parser, err := argweave.New(&cfg, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.ProviderFlags}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestNumericWidthsAndCustomCollections(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var invalid widthConfig
-			parser, err := clap.New(&invalid, clap.AppConfig{Providers: []clap.ProviderKind{clap.ProviderFlags}})
+			parser, err := argweave.New(&invalid, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.ProviderFlags}})
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -72,19 +72,19 @@ func TestNumericWidthsAndCustomCollections(t *testing.T) {
 
 func TestRecursiveStructFlatteningIsRejected(t *testing.T) {
 	var cfg recursiveConfig
-	if _, err := clap.New(&cfg, clap.AppConfig{}); err == nil {
+	if _, err := argweave.New(&cfg, argweave.AppConfig{}); err == nil {
 		t.Fatal("expected recursive struct flattening to be rejected")
 	}
 }
 
 func TestHandleWritesWithoutExiting(t *testing.T) {
 	var cfg testConfig
-	parser, err := clap.New(&cfg, clap.AppConfig{Name: "testapp"})
+	parser, err := argweave.New(&cfg, argweave.AppConfig{Name: "testapp"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := parser.Handle([]string{"--help"}, &stdout, &stderr); code != clap.OS_EXIT_OK {
+	if code := parser.Handle([]string{"--help"}, &stdout, &stderr); code != argweave.OS_EXIT_OK {
 		t.Fatalf("Handle help returned %d", code)
 	}
 	if !strings.Contains(stdout.String(), "--help") || stderr.Len() != 0 {
@@ -97,7 +97,7 @@ func TestEmptyEnvironmentFallsThrough(t *testing.T) {
 	var cfg struct {
 		Value string `arg:"long=value,env=ARGWEAVE_EMPTY,default=fallback"`
 	}
-	parser, err := clap.New(&cfg, clap.AppConfig{})
+	parser, err := argweave.New(&cfg, argweave.AppConfig{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestStrictConfigRejectsUnknownKeys(t *testing.T) {
 		t.Fatalf("writing config: %v", err)
 	}
 	var strict fileConfig
-	parser, err := clap.New(&strict, clap.AppConfig{StrictConfig: true})
+	parser, err := argweave.New(&strict, argweave.AppConfig{StrictConfig: true})
 	if err != nil {
 		t.Fatalf("New strict: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestStrictConfigRejectsUnknownKeys(t *testing.T) {
 	}
 
 	var permissive fileConfig
-	parser, err = clap.New(&permissive, clap.AppConfig{})
+	parser, err = argweave.New(&permissive, argweave.AppConfig{})
 	if err != nil {
 		t.Fatalf("New permissive: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestStrictConfigAcceptsAliases(t *testing.T) {
 		t.Fatalf("writing config: %v", err)
 	}
 	var cfg fileConfig2
-	parser, err := clap.New(&cfg, clap.AppConfig{StrictConfig: true})
+	parser, err := argweave.New(&cfg, argweave.AppConfig{StrictConfig: true})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -182,11 +182,11 @@ func (c *customValue) Set(s string) error { c.raw = "parsed:" + s; return nil }
 // flattening, positional arguments, aliases, negatable booleans, custom
 // types and --print-config, mirroring how a real consumer would use it.
 func TestParserEndToEnd(t *testing.T) {
-	app := clap.AppConfig{Name: "testapp", Version: "0.0.1", Description: "test program"}
+	app := argweave.AppConfig{Name: "testapp", Version: "0.0.1", Description: "test program"}
 
 	// 1. CLI flags are resolved, including short flags and slices.
 	var cfg testConfig
-	p, err := clap.New(&cfg, app)
+	p, err := argweave.New(&cfg, app)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestParserEndToEnd(t *testing.T) {
 	})
 
 	var cfg2 testConfig
-	p2, err := clap.New(&cfg2, app)
+	p2, err := argweave.New(&cfg2, app)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestParserEndToEnd(t *testing.T) {
 	// no default produces an error.
 	os.Unsetenv("TESTAPP_API_KEY")
 	var cfg3 testConfig
-	p3, err := clap.New(&cfg3, app)
+	p3, err := argweave.New(&cfg3, app)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -236,11 +236,11 @@ func TestParserEndToEnd(t *testing.T) {
 	// 4. --help is recognized, returns COMMAND_HELP and renders every flag.
 	os.Setenv("TESTAPP_API_KEY", "env-secret")
 	var cfg4 testConfig
-	p4, err := clap.New(&cfg4, app)
+	p4, err := argweave.New(&cfg4, app)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if command, err := p4.Parse([]string{"--help"}); command != clap.COMMAND_HELP || err != nil {
+	if command, err := p4.Parse([]string{"--help"}); command != argweave.COMMAND_HELP || err != nil {
 		t.Fatalf("expected CommandHelp, got command=%v err=%v", command, err)
 	}
 	help := p4.GenerateHelp()
@@ -254,7 +254,7 @@ func TestParserEndToEnd(t *testing.T) {
 	// positional arguments (including a trailing slice) and a custom
 	// Value type all work together.
 	var fcfg flattenConfig
-	fp, err := clap.New(&fcfg, app)
+	fp, err := argweave.New(&fcfg, app)
 	if err != nil {
 		t.Fatalf("New (flatten): %v", err)
 	}
@@ -269,7 +269,7 @@ func TestParserEndToEnd(t *testing.T) {
 	}
 
 	var fcfg2 flattenConfig
-	fp2, err := clap.New(&fcfg2, app)
+	fp2, err := argweave.New(&fcfg2, app)
 	if err != nil {
 		t.Fatalf("New (negate): %v", err)
 	}
@@ -282,7 +282,7 @@ func TestParserEndToEnd(t *testing.T) {
 
 	// 6. A missing required positional argument is a validation error.
 	var fcfg3 flattenConfig
-	fp3, err := clap.New(&fcfg3, app)
+	fp3, err := argweave.New(&fcfg3, app)
 	if err != nil {
 		t.Fatalf("New (missing positional): %v", err)
 	}
@@ -293,11 +293,11 @@ func TestParserEndToEnd(t *testing.T) {
 	// 7. --print-config prints the resolved config as JSON and returns
 	// COMMAND_PRINT_CONFIG.
 	var fcfg4 flattenConfig
-	fp4, err := clap.New(&fcfg4, app)
+	fp4, err := argweave.New(&fcfg4, app)
 	if err != nil {
 		t.Fatalf("New (print-config): %v", err)
 	}
-	if command, err := fp4.Parse([]string{"input.txt", "--print-config"}); command != clap.COMMAND_PRINT_CONFIG || err != nil {
+	if command, err := fp4.Parse([]string{"input.txt", "--print-config"}); command != argweave.COMMAND_PRINT_CONFIG || err != nil {
 		t.Fatalf("expected CommandPrintConfig, got command=%v err=%v", command, err)
 	}
 
@@ -307,7 +307,7 @@ func TestParserEndToEnd(t *testing.T) {
 	t.Cleanup(func() { os.Unsetenv("TESTAPP_VALUE") })
 
 	var pcfg providerConfig
-	pp, err := clap.New(&pcfg, app)
+	pp, err := argweave.New(&pcfg, app)
 	if err != nil {
 		t.Fatalf("New (providers default): %v", err)
 	}
@@ -321,10 +321,10 @@ func TestParserEndToEnd(t *testing.T) {
 	// 9. Reordering AppConfig.Providers changes precedence: flags before
 	// env makes the CLI value win instead.
 	flagsFirst := app
-	flagsFirst.Providers = []clap.ProviderKind{clap.ProviderFlags, clap.ProviderEnv, clap.ProviderDefault}
+	flagsFirst.Providers = []argweave.ProviderKind{argweave.ProviderFlags, argweave.ProviderEnv, argweave.ProviderDefault}
 
 	var pcfg2 providerConfig
-	pp2, err := clap.New(&pcfg2, flagsFirst)
+	pp2, err := argweave.New(&pcfg2, flagsFirst)
 	if err != nil {
 		t.Fatalf("New (providers flags-first): %v", err)
 	}
@@ -340,10 +340,10 @@ func TestParserEndToEnd(t *testing.T) {
 	// fail to resolve once env/CLI are absent.
 	os.Unsetenv("TESTAPP_VALUE")
 	noDefault := app
-	noDefault.Providers = []clap.ProviderKind{clap.ProviderEnv, clap.ProviderFlags}
+	noDefault.Providers = []argweave.ProviderKind{argweave.ProviderEnv, argweave.ProviderFlags}
 
 	var pcfg3 providerConfig
-	pp3, err := clap.New(&pcfg3, noDefault)
+	pp3, err := argweave.New(&pcfg3, noDefault)
 	if err != nil {
 		t.Fatalf("New (providers no-default): %v", err)
 	}
@@ -352,7 +352,7 @@ func TestParserEndToEnd(t *testing.T) {
 	}
 
 	// 11. An unknown provider kind is rejected at New().
-	if _, err := clap.New(&providerConfig{}, clap.AppConfig{Providers: []clap.ProviderKind{"bogus"}}); err == nil {
+	if _, err := argweave.New(&providerConfig{}, argweave.AppConfig{Providers: []argweave.ProviderKind{"bogus"}}); err == nil {
 		t.Fatal("expected error for unknown provider kind, got nil")
 	}
 
@@ -365,7 +365,7 @@ func TestParserEndToEnd(t *testing.T) {
 	}
 
 	var fcfg5 fileConfig
-	fp5, err := clap.New(&fcfg5, app)
+	fp5, err := argweave.New(&fcfg5, app)
 	if err != nil {
 		t.Fatalf("New (file provider json): %v", err)
 	}
@@ -384,7 +384,7 @@ func TestParserEndToEnd(t *testing.T) {
 	}
 
 	var fcfg6 fileConfig
-	fp6, err := clap.New(&fcfg6, app)
+	fp6, err := argweave.New(&fcfg6, app)
 	if err != nil {
 		t.Fatalf("New (file provider toml): %v", err)
 	}
@@ -397,7 +397,7 @@ func TestParserEndToEnd(t *testing.T) {
 
 	// 14. A missing --config file is a parse error.
 	var fcfg7 fileConfig
-	fp7, err := clap.New(&fcfg7, app)
+	fp7, err := argweave.New(&fcfg7, app)
 	if err != nil {
 		t.Fatalf("New (file provider missing): %v", err)
 	}
@@ -407,9 +407,9 @@ func TestParserEndToEnd(t *testing.T) {
 
 	// 15. Disabling ProviderFile also disables the --config/-c flag itself.
 	noFile := app
-	noFile.Providers = []clap.ProviderKind{clap.ProviderEnv, clap.ProviderFlags, clap.ProviderDefault}
+	noFile.Providers = []argweave.ProviderKind{argweave.ProviderEnv, argweave.ProviderFlags, argweave.ProviderDefault}
 	var fcfg8 fileConfig
-	fp8, err := clap.New(&fcfg8, noFile)
+	fp8, err := argweave.New(&fcfg8, noFile)
 	if err != nil {
 		t.Fatalf("New (no file provider): %v", err)
 	}
@@ -425,7 +425,7 @@ func TestParserEndToEnd(t *testing.T) {
 	}
 
 	var fcfg9 fileConfig2
-	fp9, err := clap.New(&fcfg9, app)
+	fp9, err := argweave.New(&fcfg9, app)
 	if err != nil {
 		t.Fatalf("New (file provider precision): %v", err)
 	}
@@ -461,11 +461,11 @@ func TestParserEndToEnd(t *testing.T) {
 
 	// 18. Sources reports which provider resolved each field.
 	sources := fp9.Sources()
-	if sources["big-id"] != clap.ProviderFile {
-		t.Fatalf("expected big-id resolved from %q, got %q", clap.ProviderFile, sources["big-id"])
+	if sources["big-id"] != argweave.ProviderFile {
+		t.Fatalf("expected big-id resolved from %q, got %q", argweave.ProviderFile, sources["big-id"])
 	}
-	if sources["timeout"] != clap.ProviderDefault {
-		t.Fatalf("expected timeout resolved from %q, got %q", clap.ProviderDefault, sources["timeout"])
+	if sources["timeout"] != argweave.ProviderDefault {
+		t.Fatalf("expected timeout resolved from %q, got %q", argweave.ProviderDefault, sources["timeout"])
 	}
 
 	// 19. GenerateCompletion renders bash/zsh/fish scripts listing flags,
@@ -494,7 +494,7 @@ func TestParserEndToEnd(t *testing.T) {
 	searchApp := app
 	searchApp.ConfigSearchPaths = []string{searchDir}
 	var fcfg10 fileConfig
-	fp10, err := clap.New(&fcfg10, searchApp)
+	fp10, err := argweave.New(&fcfg10, searchApp)
 	if err != nil {
 		t.Fatalf("New (config search paths): %v", err)
 	}
@@ -510,7 +510,7 @@ func TestParserEndToEnd(t *testing.T) {
 	// just like an embedded one, and works through CLI flags, env vars
 	// (including AppConfig.EnvPrefix) and the file provider alike.
 	var dcfg dbAppConfig
-	dp, err := clap.New(&dcfg, app)
+	dp, err := argweave.New(&dcfg, app)
 	if err != nil {
 		t.Fatalf("New (named nested struct): %v", err)
 	}
@@ -530,7 +530,7 @@ func TestParserEndToEnd(t *testing.T) {
 	prefixedApp := app
 	prefixedApp.EnvPrefix = "MYAPP_"
 	var dcfg2 dbAppConfig
-	dp2, err := clap.New(&dcfg2, prefixedApp)
+	dp2, err := argweave.New(&dcfg2, prefixedApp)
 	if err != nil {
 		t.Fatalf("New (nested struct + EnvPrefix): %v", err)
 	}
@@ -547,7 +547,7 @@ func TestParserEndToEnd(t *testing.T) {
 		t.Fatalf("writing db config: %v", err)
 	}
 	var dcfg3 dbAppConfig
-	dp3, err := clap.New(&dcfg3, app)
+	dp3, err := argweave.New(&dcfg3, app)
 	if err != nil {
 		t.Fatalf("New (nested struct + file provider): %v", err)
 	}
@@ -565,7 +565,7 @@ func TestValidationRelationshipsAndMetadata(t *testing.T) {
 		t.Fatalf("writing secret file: %v", err)
 	}
 	var cfg validationConfig
-	parser, err := clap.New(&cfg, clap.AppConfig{Providers: []clap.ProviderKind{clap.ProviderFlags}})
+	parser, err := argweave.New(&cfg, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.ProviderFlags}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -588,7 +588,7 @@ func TestValidationRelationshipsAndMetadata(t *testing.T) {
 	}
 
 	var invalid validationConfig
-	invalidParser, err := clap.New(&invalid, clap.AppConfig{Providers: []clap.ProviderKind{clap.ProviderFlags}})
+	invalidParser, err := argweave.New(&invalid, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.ProviderFlags}})
 	if err != nil {
 		t.Fatalf("New invalid: %v", err)
 	}
@@ -602,13 +602,13 @@ func TestValidationRelationshipsAndMetadata(t *testing.T) {
 
 func TestValidationMetadataFailsAtNewAndCallbackRuns(t *testing.T) {
 	var invalid relationshipConfig
-	if _, err := clap.New(&invalid, clap.AppConfig{}); err == nil || !strings.Contains(err.Error(), "unknown field") {
+	if _, err := argweave.New(&invalid, argweave.AppConfig{}); err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("expected invalid relationship error from New, got %v", err)
 	}
 
 	var cfg callbackConfig
-	parser, err := clap.New(&cfg, clap.AppConfig{
-		Providers: []clap.ProviderKind{clap.ProviderFlags},
+	parser, err := argweave.New(&cfg, argweave.AppConfig{
+		Providers: []argweave.ProviderKind{argweave.ProviderFlags},
 		Validate: func(value interface{}) []error {
 			candidate := value.(*callbackConfig)
 			var validationErrors []error
@@ -638,8 +638,8 @@ func TestValidationIgnoresNilErrorsAndAggregatesRelationships(t *testing.T) {
 		Cert string `arg:"long=certificate"`
 		Key  string `arg:"long=key"`
 	}
-	parser, err := clap.New(&cfg, clap.AppConfig{
-		Providers: []clap.ProviderKind{clap.ProviderFlags},
+	parser, err := argweave.New(&cfg, argweave.AppConfig{
+		Providers: []argweave.ProviderKind{argweave.ProviderFlags},
 		Validate:  func(interface{}) []error { return []error{nil} },
 	})
 	if err != nil {
@@ -655,7 +655,7 @@ func TestSourcesDetailedReportsProviderContext(t *testing.T) {
 		Port   int    `arg:"long=port,env=TEST_PORT"`
 		Secret string `arg:"long=secret,secret"`
 	}
-	parser, err := clap.New(&cfg, clap.AppConfig{Providers: []clap.ProviderKind{clap.ProviderFlags}})
+	parser, err := argweave.New(&cfg, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.ProviderFlags}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -663,7 +663,7 @@ func TestSourcesDetailedReportsProviderContext(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 	info := parser.SourcesDetailed()
-	if info["port"].Provider != clap.ProviderFlags || info["port"].Key != "--port" {
+	if info["port"].Provider != argweave.ProviderFlags || info["port"].Key != "--port" {
 		t.Fatalf("unexpected port source: %+v", info["port"])
 	}
 	if !info["secret"].Redacted {
@@ -675,7 +675,7 @@ func TestParseErrorIncludesProvider(t *testing.T) {
 	var cfg struct {
 		Port int `arg:"long=port,default=not-a-number"`
 	}
-	parser, err := clap.New(&cfg, clap.AppConfig{})
+	parser, err := argweave.New(&cfg, argweave.AppConfig{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -688,7 +688,7 @@ func TestParsingDurationIsRecorded(t *testing.T) {
 	var cfg struct {
 		Name string `arg:"long=name"`
 	}
-	parser, err := clap.New(&cfg, clap.AppConfig{})
+	parser, err := argweave.New(&cfg, argweave.AppConfig{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

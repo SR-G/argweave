@@ -34,7 +34,7 @@ import (
 	"strconv"
 	"strings"
 
-	argweave "forgejo.tensin.org/SR-G/argweave"
+	argweave "github.com/SR-G/argweave"
 )
 
 const (

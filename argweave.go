@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"forgejo.tensin.org/SR-G/argweave/providers"
+	"github.com/SR-G/argweave/providers"
 )
 
 // Command identifies a built-in parser action requested by the arguments.

@@ -1,4 +1,4 @@
-module forgejo.tensin.org/SR-G/argweave
+module github.com/SR-G/argweave
 
 go 1.27.1
 
