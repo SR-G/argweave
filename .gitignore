@@ -1,0 +1,25 @@
+# Build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Coverage
+coverage.txt
+coverage.html
+
+# Editor/OS cruft
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+bin/
+dist/
+bistribution/
+build/
+tmp/
+*.log
+*.tmp

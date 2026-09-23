@@ -1,0 +1,63 @@
+name: Reusable Go verification
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: GitHub-hosted runner label
+        required: true
+        type: string
+      race:
+        description: Run race-enabled tests
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify (${{ inputs.runner }})
+    runs-on: ${{ inputs.runner }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          files="$(gofmt -l .)"
+          if [ -n "$files" ]; then
+            echo "The following Go files are not formatted:"
+            printf '%s\n' "$files"
+            exit 1
+          fi
+
+      - name: Run generated-document check
+        shell: bash
+        run: |
+          go generate ./...
+          git diff --exit-code
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Run race-enabled tests
+        if: inputs.race
+        run: go test -race ./...
+
+      - name: Run static analysis
+        run: go vet ./...
+
+      - name: Build all packages and examples
+        run: go build ./...
