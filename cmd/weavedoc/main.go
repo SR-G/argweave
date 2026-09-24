@@ -16,6 +16,9 @@
 // -file may also point at a directory, in which case every *.go file in it
 // (excluding _test.go files) is parsed, which is useful when the struct
 // embeds a sub-struct defined in a sibling file of the same package.
+// -file accepts a comma-separated list of files and/or directories, so a
+// sub-struct defined elsewhere (e.g. a shared config package in another
+// directory) can be included too.
 // -schema writes a JSON Schema document containing field types, required
 // fields, defaults, descriptions, and argweave-specific metadata extensions.
 package main
@@ -50,7 +53,7 @@ const (
 func main() {
 	var (
 		typeName      = flag.String("type", "", "name of the struct type to document (required)")
-		file          = flag.String("file", os.Getenv("GOFILE"), "Go source file or directory containing the struct (defaults to $GOFILE)")
+		file          = flag.String("file", os.Getenv("GOFILE"), "comma-separated Go source files and/or directories containing the struct (defaults to $GOFILE)")
 		out           = flag.String("out", "", "write a full standalone Markdown page to this path")
 		edit          = flag.String("edit", "", "inject the generated table into this file, between weavedoc markers")
 		schema        = flag.String("schema", "", "write a JSON Schema configuration document to this path")
@@ -185,8 +188,37 @@ type docField struct {
 }
 
 // resolveFiles returns the list of *.go files (excluding _test.go) to
-// parse: either the single file given, or every Go file in the directory.
-func resolveFiles(fileOrDir string) ([]string, error) {
+// parse from a comma-separated list of files and/or directories, so a
+// struct embedding a sub-struct defined elsewhere (a sibling package, not
+// just a sibling file) can be documented by listing its location too.
+func resolveFiles(fileOrDirList string) ([]string, error) {
+	var files []string
+	seen := map[string]bool{}
+	for _, entry := range strings.Split(fileOrDirList, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		entryFiles, err := resolveFileOrDir(entry)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range entryFiles {
+			if !seen[f] {
+				seen[f] = true
+				files = append(files, f)
+			}
+		}
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no .go files found in %s", fileOrDirList)
+	}
+	return files, nil
+}
+
+// resolveFileOrDir expands a single file or directory entry into its *.go
+// files (excluding _test.go); a plain file is returned as-is.
+func resolveFileOrDir(fileOrDir string) ([]string, error) {
 	info, err := os.Stat(fileOrDir)
 	if err != nil {
 		return nil, fmt.Errorf("stat %s: %w", fileOrDir, err)

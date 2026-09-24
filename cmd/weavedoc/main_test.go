@@ -133,3 +133,30 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
+
+func TestExtractFieldsAcceptsCommaSeparatedFileList(t *testing.T) {
+	main := writeSource(t, `package sample
+
+type Config struct {
+    Port uint16 `+"`arg:\"long=port\"`"+`
+    Database DatabaseConfig
+}
+`)
+	sub := t.TempDir()
+	writeFile(t, filepath.Join(sub, "database.go"), `package sample
+
+type DatabaseConfig struct {
+    Host string `+"`arg:\"long=db-host\"`"+`
+}
+`)
+	fields, err := extractFields(main+","+sub, "Config")
+	if err != nil {
+		t.Fatalf("extractFields: %v", err)
+	}
+	table := renderTable(fields)
+	for _, want := range []string{"`--port`", "`--db-host`"} {
+		if !strings.Contains(table, want) {
+			t.Fatalf("table missing %q:\n%s", want, table)
+		}
+	}
+}

@@ -19,6 +19,8 @@
 - Generate Markdown documentation for your options with `go generate` (to automatically update a `README.md`, etc.).
 - The default `Parse` method does not log or terminate the process; use `ParseAndHandleExitIfNeeded` as a wrapper, if you need to simplify the code in which you embed this library (see [examples/](examples/)).
 
+See [COOKBOOK.md](COOKBOOK.md) for task-oriented recipes (debugging resolved values, validating parameters, documenting multiple structs, etc.).
+
 Aside from TOML parsing, argweave is dependency-free.
 
 ## Table of Contents
@@ -54,6 +56,7 @@ Aside from TOML parsing, argweave is dependency-free.
     - [JSON Schema mode (`-schema`)](#json-schema-mode--schema)
     - [Generated table example](#generated-table-example)
   - [Examples](#examples)
+  - [Cookbook](COOKBOOK.md)
   - [Design notes / limitations](#design-notes--limitations)
   - [Dev Activities](#dev-activities)
     - [Regenerate the test MARKDOWN content](#regenerate-the-test-markdown-content)
