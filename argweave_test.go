@@ -92,6 +92,29 @@ func TestHandleWritesWithoutExiting(t *testing.T) {
 	}
 }
 
+func TestHelpColorModes(t *testing.T) {
+	var cfg testConfig
+	parser, err := argweave.New(&cfg, argweave.AppConfig{Name: "testapp", Color: argweave.ColorAlways})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	help := parser.GenerateHelp()
+	for _, want := range []string{"\x1b[1mUSAGE:\x1b[0m", "\x1b[1mOPTIONS:\x1b[0m"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("expected bold ANSI section header %q:\n%s", want, help)
+		}
+	}
+
+	var cfg2 testConfig
+	parserNever, err := argweave.New(&cfg2, argweave.AppConfig{Name: "testapp", Color: argweave.ColorNever})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if help := parserNever.GenerateHelp(); strings.Contains(help, "\x1b[1m") {
+		t.Fatalf("expected no ANSI codes with ColorNever:\n%s", help)
+	}
+}
+
 func TestEmptyEnvironmentFallsThrough(t *testing.T) {
 	t.Setenv("ARGWEAVE_EMPTY", "")
 	var cfg struct {

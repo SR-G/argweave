@@ -24,30 +24,24 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"go/ast"
-	"go/format"
-	"go/parser"
-	"go/token"
 	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 
 	argweave "github.com/SR-G/argweave"
+	"github.com/SR-G/argweave/docgen"
 )
 
 const (
-	MARKER_TAG_PREFIX = "<!-- "
-	MARKER_TAG_SUFFIX = " -->"
+	MARKER_TAG_PREFIX = docgen.MarkerTagPrefix
+	MARKER_TAG_SUFFIX = docgen.MarkerTagSuffix
 
-	MARKER_TAG_BEGIN = ":start"
-	MARKER_TAG_END   = ":end"
+	MARKER_TAG_BEGIN = docgen.MarkerTagBegin
+	MARKER_TAG_END   = docgen.MarkerTagEnd
 
-	MARKER_TAG_LABEL_DEFAULT = "weavedoc"
+	MARKER_TAG_LABEL_DEFAULT = docgen.MarkerTagLabelDefault
 )
 
 func main() {
@@ -74,7 +68,7 @@ func main() {
 }
 
 func buildMakerTag(label string, tag string) string {
-	return MARKER_TAG_PREFIX + label + tag + MARKER_TAG_SUFFIX
+	return docgen.BuildMarkerTag(label, tag)
 }
 
 func run(typeName, file, out, edit, schema, fieldNames string, strictSchema bool, completion, completionOut, commandName, title, marker string) error {
@@ -118,7 +112,7 @@ func run(typeName, file, out, edit, schema, fieldNames string, strictSchema bool
 			markerBlockStart = buildMakerTag(marker, MARKER_TAG_BEGIN)
 			markerBlockEnd = buildMakerTag(marker, MARKER_TAG_END)
 		}
-		if err := injectIntoFile(edit, table, markerBlockStart, markerBlockEnd); err != nil {
+		if err := docgen.InjectIntoFile(edit, table, markerBlockStart, markerBlockEnd); err != nil {
 			return err
 		}
 	}
@@ -179,247 +173,14 @@ func selectColumns(columnNames string) ([]string, error) {
 	return selected, nil
 }
 
-// docField is the documentation-relevant information extracted for a single
-// struct field.
-type docField struct {
-	spec     argweave.FieldSpec
-	name     string
-	typeName string
-}
+// docField aliases the shared docgen.DocField type so the rest of this
+// file (and its tests) can keep using the shorter, weavedoc-local name.
+type docField = docgen.DocField
 
-// resolveFiles returns the list of *.go files (excluding _test.go) to
-// parse from a comma-separated list of files and/or directories, so a
-// struct embedding a sub-struct defined elsewhere (a sibling package, not
-// just a sibling file) can be documented by listing its location too.
-func resolveFiles(fileOrDirList string) ([]string, error) {
-	var files []string
-	seen := map[string]bool{}
-	for _, entry := range strings.Split(fileOrDirList, ",") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		entryFiles, err := resolveFileOrDir(entry)
-		if err != nil {
-			return nil, err
-		}
-		for _, f := range entryFiles {
-			if !seen[f] {
-				seen[f] = true
-				files = append(files, f)
-			}
-		}
-	}
-	if len(files) == 0 {
-		return nil, fmt.Errorf("no .go files found in %s", fileOrDirList)
-	}
-	return files, nil
-}
-
-// resolveFileOrDir expands a single file or directory entry into its *.go
-// files (excluding _test.go); a plain file is returned as-is.
-func resolveFileOrDir(fileOrDir string) ([]string, error) {
-	info, err := os.Stat(fileOrDir)
-	if err != nil {
-		return nil, fmt.Errorf("stat %s: %w", fileOrDir, err)
-	}
-	if !info.IsDir() {
-		return []string{fileOrDir}, nil
-	}
-	matches, err := filepath.Glob(filepath.Join(fileOrDir, "*.go"))
-	if err != nil {
-		return nil, err
-	}
-	var files []string
-	for _, m := range matches {
-		if !strings.HasSuffix(m, "_test.go") {
-			files = append(files, m)
-		}
-	}
-	if len(files) == 0 {
-		return nil, fmt.Errorf("no .go files found in %s", fileOrDir)
-	}
-	return files, nil
-}
-
+// extractFields statically parses fileOrDir and returns typeName's
+// documentation fields; delegates to the shared docgen package.
 func extractFields(fileOrDir, typeName string) ([]docField, error) {
-	files, err := resolveFiles(fileOrDir)
-	if err != nil {
-		return nil, err
-	}
-
-	fset := token.NewFileSet()
-	structs := map[string]*ast.StructType{}
-	var duplicateType string
-	for _, f := range files {
-		astFile, err := parser.ParseFile(fset, f, nil, parser.ParseComments)
-		if err != nil {
-			return nil, fmt.Errorf("parsing %s: %w", f, err)
-		}
-		ast.Inspect(astFile, func(n ast.Node) bool {
-			ts, ok := n.(*ast.TypeSpec)
-			if !ok {
-				return true
-			}
-			if st, ok := ts.Type.(*ast.StructType); ok {
-				if _, exists := structs[ts.Name.Name]; exists {
-					duplicateType = ts.Name.Name
-					return false
-				}
-				structs[ts.Name.Name] = st
-			}
-			return true
-		})
-		if duplicateType != "" {
-			return nil, fmt.Errorf("duplicate struct type %q found while reading %s", duplicateType, fileOrDir)
-		}
-	}
-
-	st, ok := structs[typeName]
-	if !ok {
-		return nil, fmt.Errorf("type %q not found (or is not a struct) in %s", typeName, fileOrDir)
-	}
-	return flattenStruct(st, structs, map[string]bool{})
-}
-
-// flattenStruct extracts documentation fields from st, recursing into
-// flattenStruct extracts documentation fields from st, recursing into
-// struct-typed fields (embedded or plain named, value or pointer) that
-// have no `arg` tag of their own - mirroring the runtime parser, so a
-// nested config group (e.g. a DatabaseConfig field) is documented the
-// same way whether it's embedded or referenced by name.
-func flattenStruct(st *ast.StructType, structs map[string]*ast.StructType, active map[string]bool) ([]docField, error) {
-	// The struct pointer is not enough to produce a useful error, so the
-	// caller tracks named types through this helper's active map.
-	var currentName string
-	for name, candidate := range structs {
-		if candidate == st {
-			currentName = name
-			break
-		}
-	}
-	if currentName != "" {
-		if active[currentName] {
-			return nil, fmt.Errorf("recursive struct flattening detected for type %q", currentName)
-		}
-		active[currentName] = true
-		defer delete(active, currentName)
-	}
-	var fields []docField
-	for _, f := range st.Fields.List {
-		if f.Tag == nil {
-			if ident := structTypeIdent(f.Type); ident != nil {
-				if embedded, found := structs[ident.Name]; found {
-					sub, err := flattenStruct(embedded, structs, active)
-					if err != nil {
-						return nil, err
-					}
-					fields = append(fields, sub...)
-				}
-			}
-			continue
-		}
-		if len(f.Names) == 0 {
-			continue
-		}
-		tagValue, err := strconv.Unquote(f.Tag.Value)
-		if err != nil {
-			continue
-		}
-		argTag := reflectStructTagLookup(tagValue, argweave.TAG_KEY)
-		if argTag == "" {
-			continue
-		}
-		fieldName := f.Names[0].Name
-		spec, err := argweave.ParseTag(argTag, fieldName)
-		if err != nil {
-			return nil, fmt.Errorf("field %s: %w", fieldName, err)
-		}
-		if spec.Hidden {
-			continue
-		}
-		if spec.Help == "" {
-			if doc := strings.TrimSpace(f.Doc.Text()); doc != "" {
-				spec.Help = strings.TrimSuffix(doc, "\n")
-			} else if cmt := strings.TrimSpace(f.Comment.Text()); cmt != "" {
-				spec.Help = strings.TrimSuffix(cmt, "\n")
-			}
-		}
-		fields = append(fields, docField{spec: spec, name: fieldName, typeName: formatType(f.Type)})
-	}
-	return fields, nil
-}
-
-func formatType(expr ast.Expr) string {
-	var buf bytes.Buffer
-	if err := format.Node(&buf, token.NewFileSet(), expr); err != nil {
-		return "unknown"
-	}
-	return buf.String()
-}
-
-// structTypeIdent returns the identifier naming expr's struct type,
-// unwrapping a single pointer indirection (*T), or nil if expr isn't a
-// plain (possibly pointer) named type.
-func structTypeIdent(expr ast.Expr) *ast.Ident {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t
-	case *ast.StarExpr:
-		return structTypeIdent(t.X)
-	default:
-		return nil
-	}
-}
-
-// reflectStructTagLookup extracts the value for key from a raw struct tag
-// string without requiring the reflect.StructTag type (which needs the
-// tag to come from a compiled type).
-func reflectStructTagLookup(tag, key string) string {
-	return string(structTag(tag).lookup(key))
-}
-
-type structTag string
-
-func (tag structTag) lookup(key string) string {
-	t := string(tag)
-	for t != "" {
-		t = strings.TrimLeft(t, " \t")
-		if t == "" {
-			break
-		}
-		i := 0
-		for i < len(t) && t[i] > ' ' && t[i] != ':' && t[i] != '"' && t[i] != 0x7f {
-			i++
-		}
-		if i == 0 || i+1 >= len(t) || t[i] != ':' || t[i+1] != '"' {
-			break
-		}
-		name := t[:i]
-		t = t[i+1:]
-
-		i = 1
-		for i < len(t) && t[i] != '"' {
-			if t[i] == '\\' {
-				i++
-			}
-			i++
-		}
-		if i >= len(t) {
-			break
-		}
-		qvalue := t[:i+1]
-		t = t[i+1:]
-
-		if name == key {
-			value, err := strconv.Unquote(qvalue)
-			if err != nil {
-				return ""
-			}
-			return value
-		}
-	}
-	return ""
+	return docgen.ExtractFields(fileOrDir, typeName)
 }
 
 func renderTable(fields []docField, columns ...[]string) string {
@@ -465,15 +226,15 @@ func columnHeader(column string) string {
 }
 
 func columnValue(field docField, column string) string {
-	s := field.spec
+	s := field.Spec
 	switch column {
 	case "group":
 		return emptyAsDash(s.Group)
 	case "type":
-		return emptyAsDash(field.typeName)
+		return emptyAsDash(field.TypeName)
 	case "long":
 		if s.Positional {
-			name := strings.ToUpper(field.name)
+			name := strings.ToUpper(field.Name)
 			if s.ValueNameInHelpDescription != "" {
 				name = strings.ToUpper(s.ValueNameInHelpDescription)
 			}
@@ -581,36 +342,36 @@ func writeSchema(path string, fields []docField, strict bool) error {
 	properties := make(map[string]interface{})
 	var required []string
 	for _, field := range fields {
-		key := field.spec.Long
+		key := field.Spec.Long
 		if key == "" {
-			key = strings.ToLower(field.name)
+			key = strings.ToLower(field.Name)
 		}
-		property := schemaType(field.typeName)
-		property["description"] = field.spec.Help
-		if field.spec.HasDefault {
-			if field.spec.Secret {
+		property := schemaType(field.TypeName)
+		property["description"] = field.Spec.Help
+		if field.Spec.HasDefault {
+			if field.Spec.Secret {
 				property["default"] = argweave.REDACTED_PLACEHOLDER
 			} else {
-				property["default"] = field.spec.Default
+				property["default"] = field.Spec.Default
 			}
 		}
-		if field.spec.Env != "" {
-			property["x-argweave-env"] = field.spec.Env
+		if field.Spec.Env != "" {
+			property["x-argweave-env"] = field.Spec.Env
 		}
-		if field.spec.Secret {
+		if field.Spec.Secret {
 			property["x-argweave-secret"] = true
 		}
-		if field.spec.FromFile {
+		if field.Spec.FromFile {
 			property["x-argweave-file"] = true
 		}
-		if len(field.spec.Requires) > 0 {
-			property["x-argweave-requires"] = field.spec.Requires
+		if len(field.Spec.Requires) > 0 {
+			property["x-argweave-requires"] = field.Spec.Requires
 		}
-		if len(field.spec.Conflicts) > 0 {
-			property["x-argweave-conflicts"] = field.spec.Conflicts
+		if len(field.Spec.Conflicts) > 0 {
+			property["x-argweave-conflicts"] = field.Spec.Conflicts
 		}
 		properties[key] = property
-		if field.spec.Required && !field.spec.HasDefault {
+		if field.Spec.Required && !field.Spec.HasDefault {
 			required = append(required, key)
 		}
 	}
@@ -657,13 +418,13 @@ func schemaType(typeName string) map[string]interface{} {
 func renderStaticCompletion(shell, name string, fields []docField) (string, error) {
 	var options []string
 	for _, field := range fields {
-		if field.spec.Long != "" {
-			options = append(options, "--"+field.spec.Long)
+		if field.Spec.Long != "" {
+			options = append(options, "--"+field.Spec.Long)
 		}
-		if field.spec.Short != "" {
-			options = append(options, "-"+field.spec.Short)
+		if field.Spec.Short != "" {
+			options = append(options, "-"+field.Spec.Short)
 		}
-		for _, alias := range field.spec.Aliases {
+		for _, alias := range field.Spec.Aliases {
 			options = append(options, "--"+alias)
 		}
 	}
@@ -711,27 +472,4 @@ func renderStaticCompletion(shell, name string, fields []docField) (string, erro
 	default:
 		return "", fmt.Errorf("unsupported completion shell %q (expected bash, zsh, fish or powershell)", shell)
 	}
-}
-
-func injectIntoFile(path, table string, markerBlockStart string, markerBlockEnd string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("reading %s: %w", path, err)
-	}
-	content := string(data)
-
-	startIdx := strings.Index(content, markerBlockStart)
-	endIdx := strings.Index(content, markerBlockEnd)
-	if startIdx == -1 || endIdx == -1 || endIdx < startIdx {
-		return fmt.Errorf("markers %q / %q not found (in this order) in %s", markerBlockStart, markerBlockEnd, path)
-	}
-
-	before := content[:startIdx+len(markerBlockStart)]
-	after := content[endIdx:]
-	newContent := before + "\n" + table + "\n" + after
-
-	if err := os.WriteFile(path, []byte(newContent), 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", path, err)
-	}
-	return nil
 }

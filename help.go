@@ -19,50 +19,123 @@ func DefaultHelpRenderer() HelpRenderer {
 	return &defaultHelpRenderer{}
 }
 
-// defaultHelpRenderer renders a clap-style formatted --help page.
-type defaultHelpRenderer struct{}
+// HelpEntry is the field-level information needed to render a --help
+// page. It is the common ground between the runtime renderer (built from
+// a live Parser) and static doc-generation tools such as cmd/weavedoc and
+// cmd/weavehelp (built by statically parsing a struct's `arg` tags).
+type HelpEntry struct {
+	FieldSpec
+	FieldName string
+	IsBool    bool
+	IsSlice   bool
+}
 
-func (defaultHelpRenderer) RenderHelp(p *Parser) string {
+// HelpMarkup selects how RenderHelpPage decorates section headers, group
+// headers, and flag/argument names: plain text, ANSI bold escape codes
+// (for a terminal), or Markdown bold syntax (for generated docs).
+type HelpMarkup int
+
+const (
+	// HelpMarkupNone renders plain text, with no emphasis.
+	HelpMarkupNone HelpMarkup = iota
+	// HelpMarkupANSI wraps emphasized text in ANSI bold escape codes.
+	HelpMarkupANSI
+	// HelpMarkupMarkdown wraps emphasized text in Markdown `**bold**` syntax.
+	HelpMarkupMarkdown
+)
+
+// bold wraps s according to markup, or returns it unchanged for
+// HelpMarkupNone or an empty string.
+func bold(s string, markup HelpMarkup) string {
+	if s == "" {
+		return s
+	}
+	switch markup {
+	case HelpMarkupANSI:
+		return "\x1b[1m" + s + "\x1b[0m"
+	case HelpMarkupMarkdown:
+		return "**" + s + "**"
+	default:
+		return s
+	}
+}
+
+// HelpPageOptions holds everything RenderHelpPage needs to produce a
+// clap-style --help page, independent of any live Parser.
+type HelpPageOptions struct {
+	Name        string
+	Version     string
+	Description string
+
+	// Positional holds the positional entries, in declaration order.
+	Positional []HelpEntry
+	// Options holds every non-positional entry (hidden entries are
+	// skipped by RenderHelpPage, so callers don't need to filter them).
+	Options []HelpEntry
+
+	DisableHelp         bool
+	DisableVersion      bool
+	FileProviderEnabled bool
+
+	// Markup selects how section headers, group headers, and flag/argument
+	// names are emphasized. Defaults to HelpMarkupNone (plain text).
+	Markup HelpMarkup
+}
+
+// RenderHelpPage renders a clap-style --help page from opts. It is used
+// both by the runtime Parser (via defaultHelpRenderer) and by static
+// doc-generation tools that only have a struct's `arg` tags to work with.
+func RenderHelpPage(opts HelpPageOptions) string {
 	var b strings.Builder
 
-	name := p.app.Name
+	name := opts.Name
 	if name == "" {
 		name = "app"
 	}
 
 	header := name
-	if p.app.Version != "" {
-		header += " " + p.app.Version
+	if opts.Version != "" {
+		header += " " + opts.Version
 	}
 	b.WriteString(header)
 	b.WriteString("\n")
-	if p.app.Description != "" {
-		b.WriteString(p.app.Description)
+	if opts.Description != "" {
+		b.WriteString(opts.Description)
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 
-	b.WriteString("USAGE:\n")
-	fmt.Fprintf(&b, "    %s [OPTIONS]%s\n\n", name, usagePositionalSuffix(p.posArgs))
+	b.WriteString(bold("USAGE:", opts.Markup) + "\n")
+	fmt.Fprintf(&b, "    %s [OPTIONS]%s\n\n", name, usagePositionalSuffix(opts.Positional))
 
-	if len(p.posArgs) > 0 {
-		b.WriteString("ARGS:\n")
+	if len(opts.Positional) > 0 {
+		b.WriteString(bold("ARGS:", opts.Markup) + "\n")
 		var argRows []helpRow
-		for _, e := range p.posArgs {
+		for _, e := range opts.Positional {
 			if e.Hidden {
 				continue
 			}
 			argRows = append(argRows, helpRow{rowType: HELP_ROW_ENTRY, left: positionalLeftColumn(e), help: helpText(e)})
 		}
-		writeRows(&b, argRows)
+		writeRows(&b, argRows, opts.Markup)
 		b.WriteString("\n")
 	}
 
 	var rows []helpRow
 
-	entries := make([]*entry, 0, len(p.entries))
-	for _, e := range p.entries {
-		if !e.Positional && !e.Hidden {
+	entries := make([]HelpEntry, 0, len(opts.Options))
+	helpShortTaken, versionShortTaken, configShortTaken := false, false, false
+	for _, e := range opts.Options {
+		if e.Short == "h" {
+			helpShortTaken = true
+		}
+		if e.Short == "V" {
+			versionShortTaken = true
+		}
+		if e.Short == "c" {
+			configShortTaken = true
+		}
+		if !e.Hidden {
 			entries = append(entries, e)
 		}
 	}
@@ -70,7 +143,7 @@ func (defaultHelpRenderer) RenderHelp(p *Parser) string {
 		if entries[i].Group != entries[j].Group {
 			return entries[i].Group < entries[j].Group
 		}
-		return entries[i].flagLabel() < entries[j].flagLabel()
+		return flagLabel(entries[i]) < flagLabel(entries[j])
 	})
 
 	currentGroup := ""
@@ -81,28 +154,28 @@ func (defaultHelpRenderer) RenderHelp(p *Parser) string {
 				rows = append(rows, helpRow{rowType: HELP_ROW_GROUP, left: strings.ToUpper(currentGroup) + ":"})
 			}
 		}
-		rows = append(rows, helpRow{rowType: HELP_ROW_ENTRY, left: helpLeftColumn(e.Short, e.Long, e.isBool, placeholderName(e)), help: helpText(e)})
+		rows = append(rows, helpRow{rowType: HELP_ROW_ENTRY, left: helpLeftColumn(e.Short, e.Long, e.IsBool, placeholderName(e)), help: helpText(e)})
 	}
 	if currentGroup != "" {
 		rows = append(rows, helpRow{rowType: HELP_ROW_BLANK})
 	}
-	if !p.app.DisableHelp {
-		if p.helpShortTaken {
+	if !opts.DisableHelp {
+		if helpShortTaken {
 			rows = append(rows, helpRow{rowType: HELP_ROW_ENTRY, left: helpLeftColumn("", "help", true, ""), help: "Print help information"})
 		} else {
 			rows = append(rows, helpRow{rowType: HELP_ROW_ENTRY, left: helpLeftColumn("h", "help", true, ""), help: "Print help information"})
 		}
 	}
-	if !p.app.DisableVersion {
-		if p.versionShortTaken {
+	if !opts.DisableVersion {
+		if versionShortTaken {
 			rows = append(rows, helpRow{rowType: HELP_ROW_ENTRY, left: helpLeftColumn("", "version", true, ""), help: "Print version information"})
 		} else {
 			rows = append(rows, helpRow{rowType: HELP_ROW_ENTRY, left: helpLeftColumn("V", "version", true, ""), help: "Print version information"})
 		}
 	}
-	if p.fileProviderEnabled {
+	if opts.FileProviderEnabled {
 		configHelp := "Path to a JSON or TOML config file (auto-detected from the binary name if omitted)"
-		if p.configShortTaken {
+		if configShortTaken {
 			rows = append(rows, helpRow{rowType: HELP_ROW_ENTRY, left: helpLeftColumn("", "config", false, "PATH"), help: configHelp})
 		} else {
 			rows = append(rows, helpRow{rowType: HELP_ROW_ENTRY, left: helpLeftColumn("c", "config", false, "PATH"), help: configHelp})
@@ -110,10 +183,53 @@ func (defaultHelpRenderer) RenderHelp(p *Parser) string {
 	}
 	rows = append(rows, helpRow{rowType: HELP_ROW_ENTRY, left: helpLeftColumn("", "print-config", true, ""), help: "Print the resolved configuration as JSON"})
 
-	b.WriteString("OPTIONS:\n")
-	writeRows(&b, rows)
+	b.WriteString(bold("OPTIONS:", opts.Markup) + "\n")
+	writeRows(&b, rows, opts.Markup)
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// defaultHelpRenderer renders a clap-style formatted --help page.
+type defaultHelpRenderer struct{}
+
+func (defaultHelpRenderer) RenderHelp(p *Parser) string {
+	positional := make([]HelpEntry, 0, len(p.posArgs))
+	for _, e := range p.posArgs {
+		positional = append(positional, e.toHelpEntry())
+	}
+	options := make([]HelpEntry, 0, len(p.entries))
+	for _, e := range p.entries {
+		if !e.Positional {
+			options = append(options, e.toHelpEntry())
+		}
+	}
+	return RenderHelpPage(HelpPageOptions{
+		Name:                p.app.Name,
+		Version:             p.app.Version,
+		Description:         p.app.Description,
+		Positional:          positional,
+		Options:             options,
+		DisableHelp:         p.app.DisableHelp,
+		DisableVersion:      p.app.DisableVersion,
+		FileProviderEnabled: p.fileProviderEnabled,
+		Markup:              helpMarkupFor(p.app.Color),
+	})
+}
+
+// helpMarkupFor resolves an AppConfig.Color setting to the markup used by
+// RenderHelpPage: ANSI bold escape codes when color is enabled, plain text
+// otherwise.
+func helpMarkupFor(mode ColorMode) HelpMarkup {
+	if shouldColorize(mode) {
+		return HelpMarkupANSI
+	}
+	return HelpMarkupNone
+}
+
+// toHelpEntry converts an internal, reflection-backed entry into the
+// renderer-agnostic HelpEntry shared with static doc-generation tools.
+func (e *entry) toHelpEntry() HelpEntry {
+	return HelpEntry{FieldSpec: e.FieldSpec, FieldName: e.fieldName, IsBool: e.isBool, IsSlice: e.isSlice}
 }
 
 // helpRowType identifies how writeRows should render a helpRow.
@@ -134,7 +250,7 @@ type helpRow struct {
 	help    string
 }
 
-func writeRows(b *strings.Builder, rows []helpRow) {
+func writeRows(b *strings.Builder, rows []helpRow, markup HelpMarkup) {
 	width := 0
 	for _, r := range rows {
 		if r.rowType != HELP_ROW_ENTRY {
@@ -152,19 +268,40 @@ func writeRows(b *strings.Builder, rows []helpRow) {
 			if index > 0 {
 				b.WriteString("\n")
 			}
-			fmt.Fprintf(b, "    %s\n", r.left)
+			fmt.Fprintf(b, "    %s\n", bold(r.left, markup))
 		default:
-			fmt.Fprintf(b, "    %-*s  %s\n", width, r.left, r.help)
+			pad := strings.Repeat(" ", width-len(r.left))
+			fmt.Fprintf(b, "    %s%s  %s\n", bold(r.left, markup), pad, r.help)
 		}
 	}
 }
 
-func usagePositionalSuffix(posArgs []*entry) string {
+func flagLabel(e HelpEntry) string {
+	switch {
+	case e.Positional:
+		return "<" + positionalName(e) + ">"
+	case e.Long != "" && e.Short != "":
+		return fmt.Sprintf("-%s/--%s", e.Short, e.Long)
+	case e.Long != "":
+		return "--" + e.Long
+	default:
+		return "-" + e.Short
+	}
+}
+
+func positionalName(e HelpEntry) string {
+	if e.ValueNameInHelpDescription != "" {
+		return strings.ToUpper(e.ValueNameInHelpDescription)
+	}
+	return strings.ToUpper(e.FieldName)
+}
+
+func usagePositionalSuffix(posArgs []HelpEntry) string {
 	var b strings.Builder
 	for _, e := range posArgs {
-		name := e.positionalName()
+		name := positionalName(e)
 		switch {
-		case e.isSlice:
+		case e.IsSlice:
 			fmt.Fprintf(&b, " [%s]...", name)
 		case e.Required:
 			fmt.Fprintf(&b, " <%s>", name)
@@ -175,9 +312,9 @@ func usagePositionalSuffix(posArgs []*entry) string {
 	return b.String()
 }
 
-func positionalLeftColumn(e *entry) string {
-	name := e.positionalName()
-	if e.isSlice {
+func positionalLeftColumn(e HelpEntry) string {
+	name := positionalName(e)
+	if e.IsSlice {
 		return fmt.Sprintf("[%s]...", name)
 	}
 	if e.Required {
@@ -186,13 +323,13 @@ func positionalLeftColumn(e *entry) string {
 	return fmt.Sprintf("[%s]", name)
 }
 
-func placeholderName(e *entry) string {
+func placeholderName(e HelpEntry) string {
 	if e.ValueNameInHelpDescription != "" {
 		return strings.ToUpper(e.ValueNameInHelpDescription)
 	}
 	name := e.Long
 	if name == "" {
-		name = e.fieldName
+		name = e.FieldName
 	}
 	name = strings.ReplaceAll(name, "-", "_")
 	return strings.ToUpper(name)
@@ -214,7 +351,7 @@ func helpLeftColumn(short, long string, isBool bool, placeholder string) string 
 	return b.String()
 }
 
-func helpText(e *entry) string {
+func helpText(e HelpEntry) string {
 	var parts []string
 	if e.Help != "" {
 		parts = append(parts, e.Help)

@@ -21,6 +21,7 @@ import (
 )
 
 //go:generate go run ../../cmd/weavedoc -type=Config -file=main.go -out=CONFIG.md -title=Full-Example-Configuration
+//go:generate go run ../../cmd/weavehelp -type=Config -file=main.go -name=full-example -app-version=1.0.0 -out=HELP.txt -code-block=false
 
 // DatabaseConfig is flattened into Config because it has no arg tag of its own.
 type DatabaseConfig struct {

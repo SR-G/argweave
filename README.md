@@ -46,6 +46,7 @@ Aside from TOML parsing, argweave is dependency-free.
   - [Feature 2 — Global configuration](#feature-2--global-configuration)
     - [Providers: choosing and ordering value sources](#providers-choosing-and-ordering-value-sources)
     - [Instanciation](#instanciation)
+    - [Bold `--help` sections, like clap](#bold---help-sections-like-clap)
     - [Config files (`argweave.ProviderFile`)](#config-files-argweaveproviderfile)
     - [Inspecting resolved values](#inspecting-resolved-values)
   - [Feature 3 — `--help` / `-h`, `--version` / `-V`, and `--print-config`](#feature-3----help---h---version---v-and---print-config)
@@ -55,8 +56,10 @@ Aside from TOML parsing, argweave is dependency-free.
     - [Edit mode (`-edit`)](#edit-mode--edit)
     - [JSON Schema mode (`-schema`)](#json-schema-mode--schema)
     - [Generated table example](#generated-table-example)
+  - [Feature 5 — Generating static `--help` text with `go generate`](#feature-5--generating-static---help-text-with-go-generate)
+    - [Edit mode (`-edit`)](#edit-mode--edit-1)
+    - [Bold Markdown output (`-markdown-bold`)](#bold-markdown-output--markdown-bold)
   - [Examples](#examples)
-  - [Cookbook](COOKBOOK.md)
   - [Design notes / limitations](#design-notes--limitations)
   - [Dev Activities](#dev-activities)
     - [Regenerate the test MARKDOWN content](#regenerate-the-test-markdown-content)
@@ -326,6 +329,22 @@ parser, err := argweave.New(&cfg, argweave.AppConfig{
 })
 ```
 
+### Bold `--help` sections, like clap
+
+Section headers (`USAGE:`, `ARGS:`, `OPTIONS:`), group headers (e.g. `SERVER:`), and flag/argument names are rendered in bold, mirroring the Rust "clap" crate's default theme. `AppConfig.Color` controls this:
+
+| Value                    | Behavior                                                            |
+| ------------------------ | -------------------------------------------------------------------- |
+| `argweave.ColorAuto`     | Default. Bold ANSI codes are used only when stdout is a terminal and `NO_COLOR` is unset. |
+| `argweave.ColorAlways`   | Always emit bold ANSI codes, regardless of the output destination.   |
+| `argweave.ColorNever`    | Never emit bold ANSI codes.                                          |
+
+```go
+parser, err := argweave.New(&cfg, argweave.AppConfig{
+    Color: argweave.ColorNever, // disable bold output unconditionally
+})
+```
+
 The process-level wrapper uses `AppConfig.ExitCodes`. Customize the standard mapping when an application follows a different CLI exit-code convention:
 
 ```go
@@ -554,11 +573,67 @@ Use `-strict-schema` to emit `additionalProperties: false`. Fields marked both `
 If a field has no `help=` value, `weavedoc` falls back to the field's Go doc comment (the comment directly above the field).
 
 
+## Feature 5 — Generating static `--help` text with `go generate`
+
+The `cmd/weavehelp` tool shares its struct introspection (via the `argweave/docgen` package) with `cmd/weavedoc`, but instead of a Markdown table it renders the exact same clap-style page produced at runtime by `--help`, using the same layout engine (`argweave.RenderHelpPage`). This lets a README, man page, or website embed an always up-to-date `--help` listing without shelling out to the built binary.
+
+`-name`, `-app-version`, and `-description` mirror `AppConfig.Name`/`Version`/`Description`; `-disable-help`, `-disable-version`, and `-no-config-flag` mirror `AppConfig.DisableHelp`/`DisableVersion` and disabling `argweave.ProviderFile`, so the generated text matches what the real binary prints.
+
+```bash
+go run github.com/SR-G/argweave/cmd/weavehelp -type=Config -file=config.go -name=myapp -app-version=1.0.0 -out=docs/HELP.txt
+```
+
+Add a `//go:generate` directive next to your struct, alongside `weavedoc`'s if you use both:
+
+```go
+//go:generate go run github.com/SR-G/argweave/cmd/weavedoc -type=Config -file=config.go -out=docs/CONFIG.md
+//go:generate go run github.com/SR-G/argweave/cmd/weavehelp -type=Config -file=config.go -name=myapp -app-version=1.0.0 -out=docs/HELP.txt -code-block=false
+type Config struct {
+    Port int `arg:"short=p,long=port,env=PORT,default=8080,help=Port number to listen on"`
+    // ...
+}
+```
+
+Then run:
+
+```bash
+go generate ./...
+```
+
+> Note: `go:generate` splits its directive on whitespace, not through a real shell, so avoid flag values containing spaces (such as `-description="..."`) directly in the directive; pass those from a wrapper script or Makefile target instead.
+
+### Edit mode (`-edit`)
+
+Same principle as `weavedoc`'s edit mode, using its own `<!-- weavehelp:start -->` / `<!-- weavehelp:end -->` markers so both tools can inject into the same file:
+
+```markdown
+## Usage
+
+<!-- weavehelp:start -->
+<!-- weavehelp:end -->
+```
+
+```bash
+go run github.com/SR-G/argweave/cmd/weavehelp -type=Config -file=config.go -name=myapp -edit=README.md
+```
+
+The generated text is wrapped in a fenced ``` ``` ``` code block by default; pass `-code-block=false` for plain text.
+
+### Bold Markdown output (`-markdown-bold`)
+
+Pass `-markdown-bold` to render section headers, group headers, and flag/argument names with Markdown `**bold**` syntax, matching the bold ANSI sections a real terminal shows for `--help` (see [Feature 3](#feature-3----help---h---version--v-and---print-config)). Since bold markers have no effect inside a fenced code block, `-markdown-bold` implies `-code-block=false`:
+
+```bash
+go run github.com/SR-G/argweave/cmd/weavehelp -type=Config -file=config.go -name=myapp -markdown-bold -out=docs/HELP.md
+```
+
+
 ## Examples
 
 See [examples/basic/main.go](examples/basic/main.go) for a runnable example, including its own `go:generate` directive and generated [examples/basic/CONFIG.md](examples/basic/CONFIG.md).
 
-For a configuration that exercises the complete feature set, see [examples/full/main.go](examples/full/main.go) and its generated [examples/full/CONFIG.md](examples/full/CONFIG.md). It demonstrates nested configuration flattening, provider precedence, grouped help, custom values and slices, cross-field validation, secrets, file-backed values, positional arguments, and explicit exit management around `Parse()`:
+
+For a configuration that exercises the complete feature set, see [examples/full/main.go](examples/full/main.go) and its generated [examples/full/CONFIG.md](examples/full/CONFIG.md) and [examples/full/HELP.txt](examples/full/HELP.txt) (the latter produced by `weavehelp`, see its own `//go:generate` directive in that file). It demonstrates nested configuration flattening, provider precedence, grouped help, custom values and slices, cross-field validation, secrets, file-backed values, positional arguments, and explicit exit management around `Parse()`:
 
 ```bash
 go run ./examples/full --help

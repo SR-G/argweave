@@ -1,0 +1,36 @@
+full-example 1.0.0
+
+USAGE:
+    full-example [OPTIONS] <FILE> [EXTRAARGS]...
+
+ARGS:
+    <FILE>          Input file to process [required]
+    [EXTRAARGS]...  Additional passthrough arguments
+
+OPTIONS:
+    DATABASE:
+        --db-host <DB_HOST>          Database host [env: DB_HOST] [default: localhost]
+        --db-port <DB_PORT>          Database port [env: DB_PORT] [default: 5432]
+
+    RUNTIME:
+        --endpoint <ENDPOINT>        HTTPS service endpoint
+        --retry-delay <RETRY_DELAY>  Retry delays [default: 1s]
+        --tags <TAGS>                Application tags [env: TAGS]
+
+    SECURITY:
+        --api-key <API_KEY>          API key [env: API_KEY] [required] [secret]
+        --certificate <CERTIFICATE>  TLS certificate path
+        --insecure                   Allow insecure transport
+        --secret-file <SECRET_FILE>  Read a secret from a file [env: SECRET_FILE] [secret] [file]
+        --tls                        Enable TLS
+
+    SERVER:
+        --host <HOST>                HTTP listen address [aliases: bind] [env: HOST] [default: 127.0.0.1]
+        --mode <MODE>                Deployment mode [env: MODE] [default: server]
+    -p, --port <PORT>                HTTP listen port [env: PORT] [default: 8080]
+    -v, --verbose                    Enable verbose logging
+
+    -h, --help                       Print help information
+    -V, --version                    Print version information
+    -c, --config <PATH>              Path to a JSON or TOML config file (auto-detected from the binary name if omitted)
+        --print-config               Print the resolved configuration as JSON

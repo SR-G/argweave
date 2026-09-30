@@ -165,6 +165,11 @@ type AppConfig struct {
 	// DefaultHelpRenderer() when left nil; assign a custom HelpRenderer to
 	// replace the built-in layout.
 	HelpRenderer HelpRenderer
+	// Color controls whether --help section headers, group headers, and
+	// flag/argument names are rendered in bold. Defaults to ColorAuto,
+	// which enables it only when stdout is a terminal and NO_COLOR is
+	// unset.
+	Color ColorMode
 	// Validate is an optional callback for validating a configuration type
 	// that cannot implement Validator directly. All returned non-nil errors
 	// are reported together after parsing.

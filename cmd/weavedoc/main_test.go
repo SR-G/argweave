@@ -89,7 +89,7 @@ func TestSelectColumnsPreservesRequestedOrder(t *testing.T) {
 		t.Fatalf("unexpected selected columns: %v", columns)
 	}
 
-	fields := []docField{{name: "Port", typeName: "int", spec: argweave.FieldSpec{Long: "port", Required: true}}}
+	fields := []docField{{Name: "Port", TypeName: "int", Spec: argweave.FieldSpec{Long: "port", Required: true}}}
 	table := renderTable(fields, columns)
 	if !strings.Contains(table, "| Required | Long |") || !strings.Contains(table, "| Yes | `--port` |") {
 		t.Fatalf("unexpected filtered table:\n%s", table)
