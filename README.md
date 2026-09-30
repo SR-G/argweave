@@ -684,7 +684,7 @@ go vet ./...
 go generate ./...
 git diff --exit-code
 
-TAG="0.1.2"
+TAG="0.1.3"
 git checkout master
 git pull --ff-only origin master
 git tag -a v${TAG} -m "Release v${TAG}$"
