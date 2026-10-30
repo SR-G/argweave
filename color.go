@@ -8,21 +8,21 @@ import "os"
 type ColorMode int
 
 const (
-	// ColorAuto enables color only when stdout is a terminal and the
+	// COLOR_AUTO enables color only when stdout is a terminal and the
 	// NO_COLOR environment variable is unset. This is the default.
-	ColorAuto ColorMode = iota
-	// ColorAlways forces color on, regardless of the output destination.
-	ColorAlways
-	// ColorNever disables color unconditionally.
-	ColorNever
+	COLOR_AUTO ColorMode = iota
+	// COLOR_ALWAYS forces color on, regardless of the output destination.
+	COLOR_ALWAYS
+	// COLOR_NEVER disables color unconditionally.
+	COLOR_NEVER
 )
 
 // shouldColorize resolves mode to a plain yes/no decision.
 func shouldColorize(mode ColorMode) bool {
 	switch mode {
-	case ColorAlways:
+	case COLOR_ALWAYS:
 		return true
-	case ColorNever:
+	case COLOR_NEVER:
 		return false
 	default:
 		return os.Getenv("NO_COLOR") == "" && isTerminal(os.Stdout)

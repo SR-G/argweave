@@ -36,12 +36,12 @@ type HelpEntry struct {
 type HelpMarkup int
 
 const (
-	// HelpMarkupNone renders plain text, with no emphasis.
-	HelpMarkupNone HelpMarkup = iota
-	// HelpMarkupANSI wraps emphasized text in ANSI bold escape codes.
-	HelpMarkupANSI
-	// HelpMarkupMarkdown wraps emphasized text in Markdown `**bold**` syntax.
-	HelpMarkupMarkdown
+	// HELP_MARKUP_NONE renders plain text, with no emphasis.
+	HELP_MARKUP_NONE HelpMarkup = iota
+	// HELP_MARKUP_ANSI wraps emphasized text in ANSI bold escape codes.
+	HELP_MARKUP_ANSI
+	// HELP_MARKUP_MARKDOWN wraps emphasized text in Markdown `**bold**` syntax.
+	HELP_MARKUP_MARKDOWN
 )
 
 // bold wraps s according to markup, or returns it unchanged for
@@ -51,9 +51,9 @@ func bold(s string, markup HelpMarkup) string {
 		return s
 	}
 	switch markup {
-	case HelpMarkupANSI:
+	case HELP_MARKUP_ANSI:
 		return "\x1b[1m" + s + "\x1b[0m"
-	case HelpMarkupMarkdown:
+	case HELP_MARKUP_MARKDOWN:
 		return "**" + s + "**"
 	default:
 		return s
@@ -221,9 +221,9 @@ func (defaultHelpRenderer) RenderHelp(p *Parser) string {
 // otherwise.
 func helpMarkupFor(mode ColorMode) HelpMarkup {
 	if shouldColorize(mode) {
-		return HelpMarkupANSI
+		return HELP_MARKUP_ANSI
 	}
-	return HelpMarkupNone
+	return HELP_MARKUP_NONE
 }
 
 // toHelpEntry converts an internal, reflection-backed entry into the

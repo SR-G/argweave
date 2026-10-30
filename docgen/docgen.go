@@ -23,19 +23,19 @@ import (
 // Marker tag pieces used to delimit generated content injected into an
 // existing file (e.g. `<!-- weavedoc:start -->` ... `<!-- weavedoc:end -->`).
 const (
-	MarkerTagPrefix = "<!-- "
-	MarkerTagSuffix = " -->"
+	MARKER_TAG_PREFIX = "<!-- "
+	MARKER_TAG_SUFFIX = " -->"
 
-	MarkerTagBegin = ":start"
-	MarkerTagEnd   = ":end"
+	MARKER_TAG_BEGIN = ":start"
+	MARKER_TAG_END   = ":end"
 
-	MarkerTagLabelDefault = "weavedoc"
+	MARKER_TAG_LABEL_DEFAULT = "weavedoc"
 )
 
 // BuildMarkerTag assembles a full marker comment (e.g. "<!-- weavedoc:start -->")
 // from a label and a begin/end suffix.
 func BuildMarkerTag(label, tag string) string {
-	return MarkerTagPrefix + label + tag + MarkerTagSuffix
+	return MARKER_TAG_PREFIX + label + tag + MARKER_TAG_SUFFIX
 }
 
 // DocField is the documentation-relevant information extracted for a

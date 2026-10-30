@@ -79,18 +79,18 @@ type SourceInfo struct {
 }
 
 const (
-	// ProviderEnv resolves values from environment variables (via a
+	// PROVIDER_ENV resolves values from environment variables (via a
 	// field's env=NAME tag, optionally prefixed by AppConfig.EnvPrefix).
-	ProviderEnv ProviderKind = "env"
-	// ProviderFlags resolves values parsed from the command line (flags
+	PROVIDER_ENV ProviderKind = "env"
+	// PROVIDER_FLAGS resolves values parsed from the command line (flags
 	// and positional arguments).
-	ProviderFlags ProviderKind = "flags"
-	// ProviderFile resolves values from a JSON or TOML configuration
+	PROVIDER_FLAGS ProviderKind = "flags"
+	// PROVIDER_FILE resolves values from a JSON or TOML configuration
 	// file, auto-detected from the binary name (or overridden with
 	// -c/--config when this provider is enabled).
-	ProviderFile ProviderKind = "file"
-	// ProviderDefault resolves a field's default=value tag.
-	ProviderDefault ProviderKind = "default"
+	PROVIDER_FILE ProviderKind = "file"
+	// PROVIDER_DEFAULT resolves a field's default=value tag.
+	PROVIDER_DEFAULT ProviderKind = "default"
 )
 
 // DefaultProviders returns the built-in provider order used when
@@ -100,7 +100,7 @@ const (
 // or disable a source entirely (e.g. drop ProviderEnv to ignore
 // environment variables).
 func DefaultProviders() []ProviderKind {
-	return []ProviderKind{ProviderEnv, ProviderFlags, ProviderFile, ProviderDefault}
+	return []ProviderKind{PROVIDER_ENV, PROVIDER_FLAGS, PROVIDER_FILE, PROVIDER_DEFAULT}
 }
 
 // DefaultExitCodes returns the standard exit-code mapping used by Parser.Handle.
@@ -116,7 +116,7 @@ func validateProviders(providers []ProviderKind) error {
 	seen := map[ProviderKind]bool{}
 	for _, kind := range providers {
 		switch kind {
-		case ProviderEnv, ProviderFlags, ProviderFile, ProviderDefault:
+		case PROVIDER_ENV, PROVIDER_FLAGS, PROVIDER_FILE, PROVIDER_DEFAULT:
 		default:
 			return fmt.Errorf("argweave: unknown provider %q", kind)
 		}
@@ -174,6 +174,18 @@ type AppConfig struct {
 	// that cannot implement Validator directly. All returned non-nil errors
 	// are reported together after parsing.
 	Validate func(config interface{}) []error
+
+	// PreParse, if set, runs at the start of Parse, before any argument is
+	// read. It receives the raw arguments and returns the arguments to
+	// parse (e.g. with injected or rewritten entries). An error aborts Parse.
+	PreParse func(args []string) ([]string, error)
+	// PreValidate, if set, runs once all values are assigned to the
+	// configuration, before the built-in and custom validations. It may
+	// mutate the configuration (e.g. derive fields). An error aborts Parse.
+	PreValidate func(config interface{}) error
+	// PostValidate, if set, runs after all validations succeeded. An error
+	// aborts Parse.
+	PostValidate func(config interface{}) error
 
 	// ExitCodes controls the codes returned by Parser.ParseAndHandleExitIfNeeded(). If nil, the
 	// mapping from DefaultExitCodes is used.
@@ -276,7 +288,7 @@ func New(target interface{}, app AppConfig) (*Parser, error) {
 
 	p := &Parser{app: app, target: elem, providers: providers, exitCodes: ecr}
 	for _, kind := range providers {
-		if kind == ProviderFile {
+		if kind == PROVIDER_FILE {
 			p.fileProviderEnabled = true
 		}
 	}
@@ -539,6 +551,14 @@ func (p *Parser) Parse(args []string) (Command, error) {
 		p.parseDuration = time.Since(started)
 	}()
 
+	if p.app.PreParse != nil {
+		newArgs, err := p.app.PreParse(append([]string(nil), args...))
+		if err != nil {
+			return COMMAND_NONE, fmt.Errorf("argweave: pre-parse hook failed: %w", err)
+		}
+		args = newArgs
+	}
+
 	values := map[*entry]string{}
 	sliceAcc := map[*entry][]string{}
 	setFromCLI := map[*entry]bool{}
@@ -738,18 +758,18 @@ func (p *Parser) Parse(args []string) (Command, error) {
 		info := SourceInfo{}
 		for _, kind := range p.providers {
 			switch kind {
-			case ProviderFlags:
+			case PROVIDER_FLAGS:
 				resolved = providers.Resolved(setFromCLI[e])
 				if resolved {
 					info = SourceInfo{Provider: kind, Key: e.flagLabel(), Redacted: e.Secret}
 				}
-			case ProviderEnv:
+			case PROVIDER_ENV:
 				if v, ok := providers.LookupEnv(e.Env, p.app.EnvPrefix, e.EnvAllowEmpty); ok {
 					values[e] = v
 					resolved = true
 					info = SourceInfo{Provider: kind, Key: p.app.EnvPrefix + e.Env, Redacted: e.Secret}
 				}
-			case ProviderFile:
+			case PROVIDER_FILE:
 				if fileValues != nil {
 					for _, key := range e.configKeys() {
 						if raw, ok := fileValues[key]; ok {
@@ -760,7 +780,7 @@ func (p *Parser) Parse(args []string) (Command, error) {
 						}
 					}
 				}
-			case ProviderDefault:
+			case PROVIDER_DEFAULT:
 				if v, ok := providers.Default(e.Default, e.HasDefault); ok {
 					values[e] = v
 					resolved = true
@@ -800,8 +820,20 @@ func (p *Parser) Parse(args []string) (Command, error) {
 		}
 	}
 
+	if p.app.PreValidate != nil {
+		if err := p.app.PreValidate(p.target.Addr().Interface()); err != nil {
+			return COMMAND_NONE, fmt.Errorf("argweave: pre-validate hook failed: %w", err)
+		}
+	}
+
 	if err := p.validateResolved(resolvedSet, values); err != nil {
 		return COMMAND_NONE, err
+	}
+
+	if p.app.PostValidate != nil {
+		if err := p.app.PostValidate(p.target.Addr().Interface()); err != nil {
+			return COMMAND_NONE, fmt.Errorf("argweave: post-validate hook failed: %w", err)
+		}
 	}
 
 	if printConfigRequested {

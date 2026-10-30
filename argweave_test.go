@@ -26,7 +26,7 @@ type testConfig struct {
 
 func TestNumericWidthsAndCustomCollections(t *testing.T) {
 	var cfg widthConfig
-	parser, err := argweave.New(&cfg, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.ProviderFlags}})
+	parser, err := argweave.New(&cfg, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.PROVIDER_FLAGS}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestNumericWidthsAndCustomCollections(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var invalid widthConfig
-			parser, err := argweave.New(&invalid, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.ProviderFlags}})
+			parser, err := argweave.New(&invalid, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.PROVIDER_FLAGS}})
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -94,7 +94,7 @@ func TestHandleWritesWithoutExiting(t *testing.T) {
 
 func TestHelpColorModes(t *testing.T) {
 	var cfg testConfig
-	parser, err := argweave.New(&cfg, argweave.AppConfig{Name: "testapp", Color: argweave.ColorAlways})
+	parser, err := argweave.New(&cfg, argweave.AppConfig{Name: "testapp", Color: argweave.COLOR_ALWAYS})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestHelpColorModes(t *testing.T) {
 	}
 
 	var cfg2 testConfig
-	parserNever, err := argweave.New(&cfg2, argweave.AppConfig{Name: "testapp", Color: argweave.ColorNever})
+	parserNever, err := argweave.New(&cfg2, argweave.AppConfig{Name: "testapp", Color: argweave.COLOR_NEVER})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestParserEndToEnd(t *testing.T) {
 	// 9. Reordering AppConfig.Providers changes precedence: flags before
 	// env makes the CLI value win instead.
 	flagsFirst := app
-	flagsFirst.Providers = []argweave.ProviderKind{argweave.ProviderFlags, argweave.ProviderEnv, argweave.ProviderDefault}
+	flagsFirst.Providers = []argweave.ProviderKind{argweave.PROVIDER_FLAGS, argweave.PROVIDER_ENV, argweave.PROVIDER_DEFAULT}
 
 	var pcfg2 providerConfig
 	pp2, err := argweave.New(&pcfg2, flagsFirst)
@@ -363,7 +363,7 @@ func TestParserEndToEnd(t *testing.T) {
 	// fail to resolve once env/CLI are absent.
 	os.Unsetenv("TESTAPP_VALUE")
 	noDefault := app
-	noDefault.Providers = []argweave.ProviderKind{argweave.ProviderEnv, argweave.ProviderFlags}
+	noDefault.Providers = []argweave.ProviderKind{argweave.PROVIDER_ENV, argweave.PROVIDER_FLAGS}
 
 	var pcfg3 providerConfig
 	pp3, err := argweave.New(&pcfg3, noDefault)
@@ -430,7 +430,7 @@ func TestParserEndToEnd(t *testing.T) {
 
 	// 15. Disabling ProviderFile also disables the --config/-c flag itself.
 	noFile := app
-	noFile.Providers = []argweave.ProviderKind{argweave.ProviderEnv, argweave.ProviderFlags, argweave.ProviderDefault}
+	noFile.Providers = []argweave.ProviderKind{argweave.PROVIDER_ENV, argweave.PROVIDER_FLAGS, argweave.PROVIDER_DEFAULT}
 	var fcfg8 fileConfig
 	fp8, err := argweave.New(&fcfg8, noFile)
 	if err != nil {
@@ -484,11 +484,11 @@ func TestParserEndToEnd(t *testing.T) {
 
 	// 18. Sources reports which provider resolved each field.
 	sources := fp9.Sources()
-	if sources["big-id"] != argweave.ProviderFile {
-		t.Fatalf("expected big-id resolved from %q, got %q", argweave.ProviderFile, sources["big-id"])
+	if sources["big-id"] != argweave.PROVIDER_FILE {
+		t.Fatalf("expected big-id resolved from %q, got %q", argweave.PROVIDER_FILE, sources["big-id"])
 	}
-	if sources["timeout"] != argweave.ProviderDefault {
-		t.Fatalf("expected timeout resolved from %q, got %q", argweave.ProviderDefault, sources["timeout"])
+	if sources["timeout"] != argweave.PROVIDER_DEFAULT {
+		t.Fatalf("expected timeout resolved from %q, got %q", argweave.PROVIDER_DEFAULT, sources["timeout"])
 	}
 
 	// 19. GenerateCompletion renders bash/zsh/fish scripts listing flags,
@@ -588,7 +588,7 @@ func TestValidationRelationshipsAndMetadata(t *testing.T) {
 		t.Fatalf("writing secret file: %v", err)
 	}
 	var cfg validationConfig
-	parser, err := argweave.New(&cfg, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.ProviderFlags}})
+	parser, err := argweave.New(&cfg, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.PROVIDER_FLAGS}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -611,7 +611,7 @@ func TestValidationRelationshipsAndMetadata(t *testing.T) {
 	}
 
 	var invalid validationConfig
-	invalidParser, err := argweave.New(&invalid, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.ProviderFlags}})
+	invalidParser, err := argweave.New(&invalid, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.PROVIDER_FLAGS}})
 	if err != nil {
 		t.Fatalf("New invalid: %v", err)
 	}
@@ -631,7 +631,7 @@ func TestValidationMetadataFailsAtNewAndCallbackRuns(t *testing.T) {
 
 	var cfg callbackConfig
 	parser, err := argweave.New(&cfg, argweave.AppConfig{
-		Providers: []argweave.ProviderKind{argweave.ProviderFlags},
+		Providers: []argweave.ProviderKind{argweave.PROVIDER_FLAGS},
 		Validate: func(value interface{}) []error {
 			candidate := value.(*callbackConfig)
 			var validationErrors []error
@@ -662,7 +662,7 @@ func TestValidationIgnoresNilErrorsAndAggregatesRelationships(t *testing.T) {
 		Key  string `arg:"long=key"`
 	}
 	parser, err := argweave.New(&cfg, argweave.AppConfig{
-		Providers: []argweave.ProviderKind{argweave.ProviderFlags},
+		Providers: []argweave.ProviderKind{argweave.PROVIDER_FLAGS},
 		Validate:  func(interface{}) []error { return []error{nil} },
 	})
 	if err != nil {
@@ -678,7 +678,7 @@ func TestSourcesDetailedReportsProviderContext(t *testing.T) {
 		Port   int    `arg:"long=port,env=TEST_PORT"`
 		Secret string `arg:"long=secret,secret"`
 	}
-	parser, err := argweave.New(&cfg, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.ProviderFlags}})
+	parser, err := argweave.New(&cfg, argweave.AppConfig{Providers: []argweave.ProviderKind{argweave.PROVIDER_FLAGS}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -686,7 +686,7 @@ func TestSourcesDetailedReportsProviderContext(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 	info := parser.SourcesDetailed()
-	if info["port"].Provider != argweave.ProviderFlags || info["port"].Key != "--port" {
+	if info["port"].Provider != argweave.PROVIDER_FLAGS || info["port"].Key != "--port" {
 		t.Fatalf("unexpected port source: %+v", info["port"])
 	}
 	if !info["secret"].Redacted {

@@ -15,6 +15,10 @@ Task-oriented recipes for things that come up once you're past the basic setup i
   - [Validation](#validation)
     - [How can I validate my parameters?](#how-can-i-validate-my-parameters)
     - [How do I express "this flag needs that one" or "these two are exclusive"?](#how-do-i-express-this-flag-needs-that-one-or-these-two-are-exclusive)
+  - [Hooks](#hooks)
+    - [How do I rewrite or inject arguments before parsing?](#how-do-i-rewrite-or-inject-arguments-before-parsing)
+    - [How do I derive or normalize values before validation runs?](#how-do-i-derive-or-normalize-values-before-validation-runs)
+    - [How do I run logic once the configuration is fully validated?](#how-do-i-run-logic-once-the-configuration-is-fully-validated)
   - [Flags and options](#flags-and-options)
     - [How do I turn off a boolean flag that defaults to `true`?](#how-do-i-turn-off-a-boolean-flag-that-defaults-to-true)
   - [Configuration sources](#configuration-sources)
@@ -150,6 +154,56 @@ type Config struct {
 ```
 
 `requires` and `conflicts` reference another field by Go field name, long flag, or alias, and are checked automatically after resolution — no `Validate` method needed for these simple cases.
+
+
+## Hooks
+
+Three optional `AppConfig` callbacks let you inject behavior around parsing. Order within `Parse`: `PreParse` → argument/provider resolution → value assignment → `PreValidate` → validations → `PostValidate`. An error returned by any hook aborts `Parse`.
+
+### How do I rewrite or inject arguments before parsing?
+
+Set `AppConfig.PreParse`. It receives a copy of the raw arguments and returns the ones to actually parse:
+
+```go
+parser, err := argweave.New(&cfg, argweave.AppConfig{
+    PreParse: func(args []string) ([]string, error) {
+        if os.Getenv("CI") != "" {
+            args = append([]string{"--no-color"}, args...)
+        }
+        return args, nil
+    },
+})
+```
+
+It runs before the built-in `-h`/`-V` handling, so an error here aborts even a help or version request.
+
+### How do I derive or normalize values before validation runs?
+
+Set `AppConfig.PreValidate`. It runs once all values are assigned to the struct and before `requires`/`conflicts`, `Validator` and `AppConfig.Validate`, so it may modify the configuration:
+
+```go
+PreValidate: func(value interface{}) error {
+    c := value.(*Config)
+    c.Host = strings.ToLower(strings.TrimSpace(c.Host))
+    if c.Addr == "" {
+        c.Addr = fmt.Sprintf("%s:%d", c.Host, c.Port)
+    }
+    return nil
+},
+```
+
+### How do I run logic once the configuration is fully validated?
+
+Set `AppConfig.PostValidate`. It only runs when every validation passed, so the configuration is known to be consistent:
+
+```go
+PostValidate: func(value interface{}) error {
+    c := value.(*Config)
+    return os.MkdirAll(c.DataDir, 0o755)
+},
+```
+
+None of the validation hooks run when help or version was requested, or when an earlier step failed.
 
 
 ## Flags and options

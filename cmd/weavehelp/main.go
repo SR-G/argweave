@@ -39,7 +39,10 @@ import (
 	"github.com/SR-G/argweave/docgen"
 )
 
-const markerTagLabelDefault = "weavehelp"
+const (
+	MARKER_TAG_LABEL_DEFAULT = "weavehelp"
+	BLOCK_TEXT_STYLE         = "shell"
+)
 
 func main() {
 	var (
@@ -99,9 +102,9 @@ func run(typeName, file, out, edit, marker, name, version, description string, d
 		}
 	}
 
-	markup := argweave.HelpMarkupNone
+	markup := argweave.HELP_MARKUP_NONE
 	if markdownBold {
-		markup = argweave.HelpMarkupMarkdown
+		markup = argweave.HELP_MARKUP_MARKDOWN
 		codeBlock = false
 	}
 
@@ -118,7 +121,7 @@ func run(typeName, file, out, edit, marker, name, version, description string, d
 	})
 	content := text
 	if codeBlock {
-		content = "```\n" + text + "\n```"
+		content = "```" + BLOCK_TEXT_STYLE + "\n" + text + "\n```"
 	}
 
 	if out != "" {
@@ -128,12 +131,12 @@ func run(typeName, file, out, edit, marker, name, version, description string, d
 	}
 
 	if edit != "" {
-		label := markerTagLabelDefault
+		label := MARKER_TAG_LABEL_DEFAULT
 		if marker != "" {
 			label = marker
 		}
-		markerBlockStart := docgen.BuildMarkerTag(label, docgen.MarkerTagBegin)
-		markerBlockEnd := docgen.BuildMarkerTag(label, docgen.MarkerTagEnd)
+		markerBlockStart := docgen.BuildMarkerTag(label, docgen.MARKER_TAG_BEGIN)
+		markerBlockEnd := docgen.BuildMarkerTag(label, docgen.MARKER_TAG_END)
 		if err := docgen.InjectIntoFile(edit, content, markerBlockStart, markerBlockEnd); err != nil {
 			return err
 		}

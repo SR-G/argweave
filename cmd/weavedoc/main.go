@@ -35,13 +35,13 @@ import (
 )
 
 const (
-	MARKER_TAG_PREFIX = docgen.MarkerTagPrefix
-	MARKER_TAG_SUFFIX = docgen.MarkerTagSuffix
+	MARKER_TAG_PREFIX = docgen.MARKER_TAG_PREFIX
+	MARKER_TAG_SUFFIX = docgen.MARKER_TAG_SUFFIX
 
-	MARKER_TAG_BEGIN = docgen.MarkerTagBegin
-	MARKER_TAG_END   = docgen.MarkerTagEnd
+	MARKER_TAG_BEGIN = docgen.MARKER_TAG_BEGIN
+	MARKER_TAG_END   = docgen.MARKER_TAG_END
 
-	MARKER_TAG_LABEL_DEFAULT = docgen.MarkerTagLabelDefault
+	MARKER_TAG_LABEL_DEFAULT = docgen.MARKER_TAG_LABEL_DEFAULT
 )
 
 func main() {
