@@ -70,6 +70,41 @@ func TestNumericWidthsAndCustomCollections(t *testing.T) {
 	}
 }
 
+func TestEnumValuesValidateAndRenderHelp(t *testing.T) {
+	cfg := enumConfig{}
+	parser, err := argweave.New(&cfg, argweave.AppConfig{
+		Providers: []argweave.ProviderKind{argweave.PROVIDER_FLAGS, argweave.PROVIDER_DEFAULT},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if help := parser.GenerateHelp(); !strings.Contains(help, "values: fast, safe") {
+		t.Fatalf("help output missing enum values:\n%s", help)
+	}
+	if _, err := parser.Parse([]string{"--mode", "safe", "--modes", "fast,safe"}); err != nil {
+		t.Fatalf("Parse valid enum values: %v", err)
+	}
+	if cfg.Mode != ENUM_MODE_SAFE || len(cfg.Modes) != 2 || cfg.Modes[0] != ENUM_MODE_FAST || cfg.Modes[1] != ENUM_MODE_SAFE {
+		t.Fatalf("unexpected enum values: %+v", cfg)
+	}
+
+	for _, args := range [][]string{
+		{"--mode", "unknown"},
+		{"--modes", "fast,unknown"},
+	} {
+		invalid := enumConfig{}
+		parser, err := argweave.New(&invalid, argweave.AppConfig{
+			Providers: []argweave.ProviderKind{argweave.PROVIDER_FLAGS, argweave.PROVIDER_DEFAULT},
+		})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		if _, err := parser.Parse(args); err == nil || !strings.Contains(err.Error(), "fast, safe") {
+			t.Fatalf("Parse(%v) expected allowed enum values in error, got %v", args, err)
+		}
+	}
+}
+
 func TestRecursiveStructFlatteningIsRejected(t *testing.T) {
 	var cfg recursiveConfig
 	if _, err := argweave.New(&cfg, argweave.AppConfig{}); err == nil {
@@ -773,6 +808,22 @@ type widthConfig struct {
 	Tokens        []customValue   `arg:"long=tokens"`
 	PointerTokens []*customValue  `arg:"long=pointer-tokens"`
 	Durations     []time.Duration `arg:"long=durations"`
+}
+
+type enumMode string
+
+const (
+	ENUM_MODE_FAST enumMode = "fast"
+	ENUM_MODE_SAFE enumMode = "safe"
+)
+
+func (*enumMode) EnumValues() []string {
+	return []string{string(ENUM_MODE_FAST), string(ENUM_MODE_SAFE)}
+}
+
+type enumConfig struct {
+	Mode  enumMode   `arg:"long=mode,default=fast,help=Execution mode"`
+	Modes []enumMode `arg:"long=modes,help=Execution modes"`
 }
 
 type recursiveConfig struct {

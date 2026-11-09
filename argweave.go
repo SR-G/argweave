@@ -59,6 +59,12 @@ type Value interface {
 	Set(string) error
 }
 
+// Enum is implemented by field types that expose their accepted input
+// values. EnumValues must be safe to call on a zero value.
+type Enum interface {
+	EnumValues() []string
+}
+
 // Validator is implemented by configuration structs that need cross-field
 // validation after all providers have been resolved. All returned non-nil
 // errors are reported together.
@@ -196,12 +202,13 @@ type AppConfig struct {
 // field annotated with an `arg` tag.
 type entry struct {
 	FieldSpec
-	fieldName string
-	path      []int // reflect.Value.FieldByIndex path, supports flattened/embedded structs
-	kind      reflect.Kind
-	isBool    bool
-	isSlice   bool
-	isCustom  bool // implements Value/TextUnmarshaler, or is time.Duration
+	fieldName  string
+	path       []int // reflect.Value.FieldByIndex path, supports flattened/embedded structs
+	kind       reflect.Kind
+	isBool     bool
+	isSlice    bool
+	isCustom   bool // implements Value/TextUnmarshaler, or is time.Duration
+	enumValues []string
 }
 
 func (e *entry) value(target reflect.Value) reflect.Value {
@@ -390,6 +397,10 @@ func (p *Parser) collectFields(t reflect.Type, prefix []int, usedShort, usedLong
 			valueTypeForField = field.Type.Elem()
 		}
 		isCustom := isCustomType(valueTypeForField)
+		enumValues, isEnum := enumValuesForType(valueTypeForField)
+		if isEnum && len(enumValues) == 0 {
+			return fmt.Errorf("argweave: enum field %q must expose at least one value", field.Name)
+		}
 
 		if isSlice && !isSupportedScalar(valueTypeForField) && !isCustom {
 			return fmt.Errorf("argweave: field %q has unsupported slice element type %s", field.Name, valueTypeForField)
@@ -419,13 +430,14 @@ func (p *Parser) collectFields(t reflect.Type, prefix []int, usedShort, usedLong
 		}
 
 		p.entries = append(p.entries, &entry{
-			FieldSpec: spec,
-			fieldName: field.Name,
-			path:      path,
-			kind:      kind,
-			isBool:    kind == reflect.Bool,
-			isSlice:   isSlice,
-			isCustom:  isCustom,
+			FieldSpec:  spec,
+			fieldName:  field.Name,
+			path:       path,
+			kind:       kind,
+			isBool:     kind == reflect.Bool,
+			isSlice:    isSlice,
+			isCustom:   isCustom,
+			enumValues: enumValues,
 		})
 	}
 	return nil
@@ -1147,8 +1159,12 @@ func setValue(field reflect.Value, e *entry, val string) error {
 		parts := strings.Split(val, ",")
 		result := reflect.MakeSlice(field.Type(), 0, len(parts))
 		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if err := validateEnumValue(e, part); err != nil {
+				return err
+			}
 			element := reflect.New(field.Type().Elem()).Elem()
-			if err := setScalarValue(element, strings.TrimSpace(part)); err != nil {
+			if err := setScalarValue(element, part); err != nil {
 				return err
 			}
 			result = reflect.Append(result, element)
@@ -1156,7 +1172,22 @@ func setValue(field reflect.Value, e *entry, val string) error {
 		field.Set(result)
 		return nil
 	}
+	if err := validateEnumValue(e, val); err != nil {
+		return err
+	}
 	return setScalarValue(field, val)
+}
+
+func validateEnumValue(e *entry, value string) error {
+	if len(e.enumValues) == 0 {
+		return nil
+	}
+	for _, allowed := range e.enumValues {
+		if value == allowed {
+			return nil
+		}
+	}
+	return fmt.Errorf("value %q is not one of: %s", value, strings.Join(e.enumValues, ", "))
 }
 
 func setScalarValue(field reflect.Value, val string) error {
@@ -1231,6 +1262,18 @@ func isCustomType(t reflect.Type) bool {
 		return true
 	}
 	return t.Kind() != reflect.Ptr && (reflect.PointerTo(t).Implements(valueType) || reflect.PointerTo(t).Implements(textUnmarshalerType))
+}
+
+func enumValuesForType(t reflect.Type) ([]string, bool) {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	value := reflect.New(t)
+	enum, ok := value.Interface().(Enum)
+	if !ok {
+		return nil, false
+	}
+	return append([]string(nil), enum.EnumValues()...), true
 }
 
 func isSupportedScalar(t reflect.Type) bool {

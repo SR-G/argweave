@@ -25,9 +25,10 @@ func DefaultHelpRenderer() HelpRenderer {
 // cmd/weavehelp (built by statically parsing a struct's `arg` tags).
 type HelpEntry struct {
 	FieldSpec
-	FieldName string
-	IsBool    bool
-	IsSlice   bool
+	FieldName  string
+	IsBool     bool
+	IsSlice    bool
+	EnumValues []string
 }
 
 // HelpMarkup selects how RenderHelpPage decorates section headers, group
@@ -229,7 +230,13 @@ func helpMarkupFor(mode ColorMode) HelpMarkup {
 // toHelpEntry converts an internal, reflection-backed entry into the
 // renderer-agnostic HelpEntry shared with static doc-generation tools.
 func (e *entry) toHelpEntry() HelpEntry {
-	return HelpEntry{FieldSpec: e.FieldSpec, FieldName: e.fieldName, IsBool: e.isBool, IsSlice: e.isSlice}
+	return HelpEntry{
+		FieldSpec:  e.FieldSpec,
+		FieldName:  e.fieldName,
+		IsBool:     e.isBool,
+		IsSlice:    e.isSlice,
+		EnumValues: e.enumValues,
+	}
 }
 
 // helpRowType identifies how writeRows should render a helpRow.
@@ -357,6 +364,9 @@ func helpText(e HelpEntry) string {
 		parts = append(parts, e.Help)
 	}
 	var meta []string
+	if len(e.EnumValues) > 0 {
+		meta = append(meta, "values: "+strings.Join(e.EnumValues, ", "))
+	}
 	if len(e.Aliases) > 0 {
 		meta = append(meta, "aliases: "+strings.Join(e.Aliases, ", "))
 	}

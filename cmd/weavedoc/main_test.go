@@ -29,6 +29,25 @@ type Config struct {
 	}
 }
 
+func TestEditModeDefaultsToWeavedocMarker(t *testing.T) {
+	source := writeSource(t, "package sample\ntype Config struct { Port int `arg:\"long=port\"` }\n")
+	readme := filepath.Join(t.TempDir(), "README.md")
+	initial := "before\n<!-- weavedoc:start -->\nold\n<!-- weavedoc:end -->\nafter\n"
+	if err := os.WriteFile(readme, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write readme: %v", err)
+	}
+	if err := run("Config", source, "", readme, "", "", false, "", "", "", "Title", ""); err != nil {
+		t.Fatalf("run edit: %v", err)
+	}
+	data, err := os.ReadFile(readme)
+	if err != nil {
+		t.Fatalf("read readme: %v", err)
+	}
+	if !strings.Contains(string(data), "`--port`") || strings.Contains(string(data), "old") {
+		t.Fatalf("default marker not replaced:\n%s", data)
+	}
+}
+
 func TestSchemaGeneration(t *testing.T) {
 	source := writeSource(t, `package sample
 
@@ -89,7 +108,7 @@ func TestSelectColumnsPreservesRequestedOrder(t *testing.T) {
 		t.Fatalf("unexpected selected columns: %v", columns)
 	}
 
-	fields := []docField{{Name: "Port", TypeName: "int", Spec: argweave.FieldSpec{Long: "port", Required: true}}}
+	fields := []docField{{HelpEntry: argweave.HelpEntry{FieldName: "Port", FieldSpec: argweave.FieldSpec{Long: "port", Required: true}}, TypeName: "int"}}
 	table := renderTable(fields, columns)
 	if !strings.Contains(table, "| Required | Long |") || !strings.Contains(table, "| Yes | `--port` |") {
 		t.Fatalf("unexpected filtered table:\n%s", table)

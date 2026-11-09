@@ -30,6 +30,7 @@
 package main
 
 import (
+	"cmp"
 	"flag"
 	"fmt"
 	"os"
@@ -69,14 +70,11 @@ func main() {
 }
 
 func run(typeName, file, out, edit, marker, name, version, description string, disableHelp, disableVersion, noConfigFlag, codeBlock, markdownBold bool) error {
-	if typeName == "" {
-		return fmt.Errorf("-type is required")
+	if err := docgen.RequireSource(typeName, file); err != nil {
+		return err
 	}
-	if file == "" {
-		return fmt.Errorf("-file is required (or run via go:generate so $GOFILE is set)")
-	}
-	if out == "" && edit == "" {
-		return fmt.Errorf("one of -out or -edit is required")
+	if err := docgen.RequireOneOf([]string{"-out", "-edit"}, out, edit); err != nil {
+		return err
 	}
 	if name == "" {
 		name = strings.ToLower(typeName)
@@ -89,16 +87,10 @@ func run(typeName, file, out, edit, marker, name, version, description string, d
 
 	var positional, options []argweave.HelpEntry
 	for _, field := range fields {
-		entry := argweave.HelpEntry{
-			FieldSpec: field.Spec,
-			FieldName: field.Name,
-			IsBool:    field.TypeName == "bool",
-			IsSlice:   strings.HasPrefix(field.TypeName, "[]"),
-		}
-		if field.Spec.Positional {
-			positional = append(positional, entry)
+		if field.Positional {
+			positional = append(positional, field.HelpEntry)
 		} else {
-			options = append(options, entry)
+			options = append(options, field.HelpEntry)
 		}
 	}
 
@@ -125,19 +117,13 @@ func run(typeName, file, out, edit, marker, name, version, description string, d
 	}
 
 	if out != "" {
-		if err := os.WriteFile(out, []byte(content+"\n"), 0o644); err != nil {
-			return fmt.Errorf("writing %s: %w", out, err)
+		if err := docgen.WriteFile(out, content+"\n"); err != nil {
+			return err
 		}
 	}
 
 	if edit != "" {
-		label := MARKER_TAG_LABEL_DEFAULT
-		if marker != "" {
-			label = marker
-		}
-		markerBlockStart := docgen.BuildMarkerTag(label, docgen.MARKER_TAG_BEGIN)
-		markerBlockEnd := docgen.BuildMarkerTag(label, docgen.MARKER_TAG_END)
-		if err := docgen.InjectIntoFile(edit, content, markerBlockStart, markerBlockEnd); err != nil {
+		if err := docgen.InjectIntoFile(edit, content, cmp.Or(marker, MARKER_TAG_LABEL_DEFAULT)); err != nil {
 			return err
 		}
 	}

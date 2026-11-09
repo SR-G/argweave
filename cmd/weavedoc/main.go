@@ -24,6 +24,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -34,15 +35,7 @@ import (
 	"github.com/SR-G/argweave/docgen"
 )
 
-const (
-	MARKER_TAG_PREFIX = docgen.MARKER_TAG_PREFIX
-	MARKER_TAG_SUFFIX = docgen.MARKER_TAG_SUFFIX
-
-	MARKER_TAG_BEGIN = docgen.MARKER_TAG_BEGIN
-	MARKER_TAG_END   = docgen.MARKER_TAG_END
-
-	MARKER_TAG_LABEL_DEFAULT = docgen.MARKER_TAG_LABEL_DEFAULT
-)
+const MARKER_TAG_LABEL_DEFAULT = "weavedoc"
 
 func main() {
 	var (
@@ -57,7 +50,7 @@ func main() {
 		completionOut = flag.String("completion-out", "", "write static completion to this path instead of stdout")
 		commandName   = flag.String("name", "", "command name used in generated completion (defaults to -type)")
 		title         = flag.String("title", "Configuration Reference", "title used in full page mode")
-		marker        = flag.String("marker", "Name of the label", "key used in the HTML marker in edit mode, default is 'weavedoc'")
+		marker        = flag.String("marker", MARKER_TAG_LABEL_DEFAULT, "key used in the HTML marker in edit mode, default is 'weavedoc'")
 	)
 	flag.Parse()
 
@@ -67,19 +60,12 @@ func main() {
 	}
 }
 
-func buildMakerTag(label string, tag string) string {
-	return docgen.BuildMarkerTag(label, tag)
-}
-
 func run(typeName, file, out, edit, schema, fieldNames string, strictSchema bool, completion, completionOut, commandName, title, marker string) error {
-	if typeName == "" {
-		return fmt.Errorf("-type is required")
+	if err := docgen.RequireSource(typeName, file); err != nil {
+		return err
 	}
-	if file == "" {
-		return fmt.Errorf("-file is required (or run via go:generate so $GOFILE is set)")
-	}
-	if out == "" && edit == "" && schema == "" && completion == "" {
-		return fmt.Errorf("one of -out, -edit, -schema or -completion is required")
+	if err := docgen.RequireOneOf([]string{"-out", "-edit", "-schema", "-completion"}, out, edit, schema, completion); err != nil {
+		return err
 	}
 
 	fields, err := extractFields(file, typeName)
@@ -98,21 +84,13 @@ func run(typeName, file, out, edit, schema, fieldNames string, strictSchema bool
 
 	if out != "" {
 		content := fmt.Sprintf("# %s\n\n%s\n", title, table)
-		if err := os.WriteFile(out, []byte(content), 0o644); err != nil {
-			return fmt.Errorf("writing %s: %w", out, err)
+		if err := docgen.WriteFile(out, content); err != nil {
+			return err
 		}
 	}
 
 	if edit != "" {
-		// MARKER_BLOCK_START = MARKER_TAG_PREFIX + MARKER_TAG_LABEL_DEFAULT + MARKER_TAG_BEGIN + MARKER_TAG_SUFFIX
-		// MARKER_BLOCK_END   = MARKER_TAG_PREFIX + MARKER_TAG_LABEL_DEFAULT + MARKER_TAG_END + MARKER_TAG_SUFFIX
-		markerBlockStart := buildMakerTag(MARKER_TAG_LABEL_DEFAULT, MARKER_TAG_BEGIN)
-		markerBlockEnd := buildMakerTag(MARKER_TAG_LABEL_DEFAULT, MARKER_TAG_END)
-		if marker != "" {
-			markerBlockStart = buildMakerTag(marker, MARKER_TAG_BEGIN)
-			markerBlockEnd = buildMakerTag(marker, MARKER_TAG_END)
-		}
-		if err := docgen.InjectIntoFile(edit, table, markerBlockStart, markerBlockEnd); err != nil {
+		if err := docgen.InjectIntoFile(edit, table, cmp.Or(marker, MARKER_TAG_LABEL_DEFAULT)); err != nil {
 			return err
 		}
 	}
@@ -131,8 +109,8 @@ func run(typeName, file, out, edit, schema, fieldNames string, strictSchema bool
 		}
 		if completionOut == "" {
 			fmt.Print(content)
-		} else if err := os.WriteFile(completionOut, []byte(content), 0o644); err != nil {
-			return fmt.Errorf("writing %s: %w", completionOut, err)
+		} else if err := docgen.WriteFile(completionOut, content); err != nil {
+			return err
 		}
 	}
 
@@ -226,7 +204,7 @@ func columnHeader(column string) string {
 }
 
 func columnValue(field docField, column string) string {
-	s := field.Spec
+	s := field.FieldSpec
 	switch column {
 	case "group":
 		return emptyAsDash(s.Group)
@@ -234,7 +212,7 @@ func columnValue(field docField, column string) string {
 		return emptyAsDash(field.TypeName)
 	case "long":
 		if s.Positional {
-			name := strings.ToUpper(field.Name)
+			name := strings.ToUpper(field.FieldName)
 			if s.ValueNameInHelpDescription != "" {
 				name = strings.ToUpper(s.ValueNameInHelpDescription)
 			}
@@ -342,36 +320,37 @@ func writeSchema(path string, fields []docField, strict bool) error {
 	properties := make(map[string]interface{})
 	var required []string
 	for _, field := range fields {
-		key := field.Spec.Long
+		s := field.FieldSpec
+		key := s.Long
 		if key == "" {
-			key = strings.ToLower(field.Name)
+			key = strings.ToLower(field.FieldName)
 		}
 		property := schemaType(field.TypeName)
-		property["description"] = field.Spec.Help
-		if field.Spec.HasDefault {
-			if field.Spec.Secret {
+		property["description"] = s.Help
+		if s.HasDefault {
+			if s.Secret {
 				property["default"] = argweave.REDACTED_PLACEHOLDER
 			} else {
-				property["default"] = field.Spec.Default
+				property["default"] = s.Default
 			}
 		}
-		if field.Spec.Env != "" {
-			property["x-argweave-env"] = field.Spec.Env
+		if s.Env != "" {
+			property["x-argweave-env"] = s.Env
 		}
-		if field.Spec.Secret {
+		if s.Secret {
 			property["x-argweave-secret"] = true
 		}
-		if field.Spec.FromFile {
+		if s.FromFile {
 			property["x-argweave-file"] = true
 		}
-		if len(field.Spec.Requires) > 0 {
-			property["x-argweave-requires"] = field.Spec.Requires
+		if len(s.Requires) > 0 {
+			property["x-argweave-requires"] = s.Requires
 		}
-		if len(field.Spec.Conflicts) > 0 {
-			property["x-argweave-conflicts"] = field.Spec.Conflicts
+		if len(s.Conflicts) > 0 {
+			property["x-argweave-conflicts"] = s.Conflicts
 		}
 		properties[key] = property
-		if field.Spec.Required && !field.Spec.HasDefault {
+		if s.Required && !s.HasDefault {
 			required = append(required, key)
 		}
 	}
@@ -389,10 +368,7 @@ func writeSchema(path string, fields []docField, strict bool) error {
 	if err != nil {
 		return fmt.Errorf("encoding schema: %w", err)
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", path, err)
-	}
-	return nil
+	return docgen.WriteFile(path, string(append(data, '\n')))
 }
 
 func schemaType(typeName string) map[string]interface{} {
@@ -418,13 +394,13 @@ func schemaType(typeName string) map[string]interface{} {
 func renderStaticCompletion(shell, name string, fields []docField) (string, error) {
 	var options []string
 	for _, field := range fields {
-		if field.Spec.Long != "" {
-			options = append(options, "--"+field.Spec.Long)
+		if field.FieldSpec.Long != "" {
+			options = append(options, "--"+field.FieldSpec.Long)
 		}
-		if field.Spec.Short != "" {
-			options = append(options, "-"+field.Spec.Short)
+		if field.FieldSpec.Short != "" {
+			options = append(options, "-"+field.FieldSpec.Short)
 		}
-		for _, alias := range field.Spec.Aliases {
+		for _, alias := range field.FieldSpec.Aliases {
 			options = append(options, "--"+alias)
 		}
 	}

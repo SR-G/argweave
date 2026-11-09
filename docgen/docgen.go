@@ -14,6 +14,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -25,32 +26,47 @@ import (
 const (
 	MARKER_TAG_PREFIX = "<!-- "
 	MARKER_TAG_SUFFIX = " -->"
-
-	MARKER_TAG_BEGIN = ":start"
-	MARKER_TAG_END   = ":end"
-
-	MARKER_TAG_LABEL_DEFAULT = "weavedoc"
+	MARKER_TAG_BEGIN  = ":start"
+	MARKER_TAG_END    = ":end"
 )
 
-// BuildMarkerTag assembles a full marker comment (e.g. "<!-- weavedoc:start -->")
-// from a label and a begin/end suffix.
-func BuildMarkerTag(label, tag string) string {
-	return MARKER_TAG_PREFIX + label + tag + MARKER_TAG_SUFFIX
-}
-
 // DocField is the documentation-relevant information extracted for a
-// single struct field.
+// single struct field: the shared HelpEntry plus the Go type as written in
+// source (e.g. "[]time.Duration"), which documentation generators need for
+// their type columns and schemas.
 type DocField struct {
-	Spec     argweave.FieldSpec
-	Name     string
+	argweave.HelpEntry
 	TypeName string
 }
 
-// ResolveFiles returns the list of *.go files (excluding _test.go) to
+// RequireSource checks the -type and -file flags shared by the doc generators.
+func RequireSource(typeName, file string) error {
+	if typeName == "" {
+		return fmt.Errorf("-type is required")
+	}
+	if file == "" {
+		return fmt.Errorf("-file is required (or run via go:generate so $GOFILE is set)")
+	}
+	return nil
+}
+
+// RequireOneOf fails when every value is empty, naming the flags in the error
+// message in the order given.
+func RequireOneOf(names []string, values ...string) error {
+	for _, value := range values {
+		if value != "" {
+			return nil
+		}
+	}
+	last := len(names) - 1
+	return fmt.Errorf("one of %s or %s is required", strings.Join(names[:last], ", "), names[last])
+}
+
+// resolveFiles returns the list of *.go files (excluding _test.go) to
 // parse from a comma-separated list of files and/or directories, so a
 // struct embedding a sub-struct defined elsewhere (a sibling package, not
 // just a sibling file) can be documented by listing its location too.
-func ResolveFiles(fileOrDirList string) ([]string, error) {
+func resolveFiles(fileOrDirList string) ([]string, error) {
 	var files []string
 	seen := map[string]bool{}
 	for _, entry := range strings.Split(fileOrDirList, ",") {
@@ -106,13 +122,14 @@ func resolveFileOrDir(fileOrDir string) ([]string, error) {
 // of typeName, flattening embedded (or plain named) struct fields that
 // have no `arg` tag of their own - mirroring the runtime parser.
 func ExtractFields(fileOrDir, typeName string) ([]DocField, error) {
-	files, err := ResolveFiles(fileOrDir)
+	files, err := resolveFiles(fileOrDir)
 	if err != nil {
 		return nil, err
 	}
 
 	fset := token.NewFileSet()
 	structs := map[string]*ast.StructType{}
+	var astFiles []*ast.File
 	var duplicateType string
 	for _, f := range files {
 		astFile, err := parser.ParseFile(fset, f, nil, parser.ParseComments)
@@ -136,13 +153,14 @@ func ExtractFields(fileOrDir, typeName string) ([]DocField, error) {
 		if duplicateType != "" {
 			return nil, fmt.Errorf("duplicate struct type %q found while reading %s", duplicateType, fileOrDir)
 		}
+		astFiles = append(astFiles, astFile)
 	}
 
 	st, ok := structs[typeName]
 	if !ok {
 		return nil, fmt.Errorf("type %q not found (or is not a struct) in %s", typeName, fileOrDir)
 	}
-	return flattenStruct(st, structs, map[string]bool{})
+	return flattenStruct(typeName, st, structs, extractEnumValues(astFiles), map[string]bool{})
 }
 
 // flattenStruct extracts documentation fields from st, recursing into
@@ -150,29 +168,18 @@ func ExtractFields(fileOrDir, typeName string) ([]DocField, error) {
 // have no `arg` tag of their own - mirroring the runtime parser, so a
 // nested config group (e.g. a DatabaseConfig field) is documented the
 // same way whether it's embedded or referenced by name.
-func flattenStruct(st *ast.StructType, structs map[string]*ast.StructType, active map[string]bool) ([]DocField, error) {
-	// The struct pointer is not enough to produce a useful error, so the
-	// caller tracks named types through this helper's active map.
-	var currentName string
-	for name, candidate := range structs {
-		if candidate == st {
-			currentName = name
-			break
-		}
+func flattenStruct(typeName string, st *ast.StructType, structs map[string]*ast.StructType, enumValues map[string][]string, active map[string]bool) ([]DocField, error) {
+	if active[typeName] {
+		return nil, fmt.Errorf("recursive struct flattening detected for type %q", typeName)
 	}
-	if currentName != "" {
-		if active[currentName] {
-			return nil, fmt.Errorf("recursive struct flattening detected for type %q", currentName)
-		}
-		active[currentName] = true
-		defer delete(active, currentName)
-	}
+	active[typeName] = true
+	defer delete(active, typeName)
 	var fields []DocField
 	for _, f := range st.Fields.List {
 		if f.Tag == nil {
 			if ident := structTypeIdent(f.Type); ident != nil {
 				if embedded, found := structs[ident.Name]; found {
-					sub, err := flattenStruct(embedded, structs, active)
+					sub, err := flattenStruct(ident.Name, embedded, structs, enumValues, active)
 					if err != nil {
 						return nil, err
 					}
@@ -188,7 +195,7 @@ func flattenStruct(st *ast.StructType, structs map[string]*ast.StructType, activ
 		if err != nil {
 			continue
 		}
-		argTag := reflectStructTagLookup(tagValue, argweave.TAG_KEY)
+		argTag := reflect.StructTag(tagValue).Get(argweave.TAG_KEY)
 		if argTag == "" {
 			continue
 		}
@@ -207,9 +214,142 @@ func flattenStruct(st *ast.StructType, structs map[string]*ast.StructType, activ
 				spec.Help = strings.TrimSuffix(cmt, "\n")
 			}
 		}
-		fields = append(fields, DocField{Spec: spec, Name: fieldName, TypeName: formatType(f.Type)})
+		var values []string
+		if ident := fieldTypeIdent(f.Type); ident != nil {
+			values = enumValues[ident.Name]
+		}
+		typeText := formatType(f.Type)
+		fields = append(fields, DocField{
+			HelpEntry: argweave.HelpEntry{
+				FieldSpec:  spec,
+				FieldName:  fieldName,
+				IsBool:     typeText == "bool",
+				IsSlice:    strings.HasPrefix(typeText, "[]"),
+				EnumValues: values,
+			},
+			TypeName: typeText,
+		})
 	}
 	return fields, nil
+}
+
+func extractEnumValues(files []*ast.File) map[string][]string {
+	constants := map[string]ast.Expr{}
+	methods := map[string]*ast.FuncDecl{}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			switch decl := decl.(type) {
+			case *ast.GenDecl:
+				if decl.Tok != token.CONST {
+					continue
+				}
+				var previousValues []ast.Expr
+				for _, spec := range decl.Specs {
+					valueSpec := spec.(*ast.ValueSpec)
+					if len(valueSpec.Values) > 0 {
+						previousValues = valueSpec.Values
+					}
+					for index, name := range valueSpec.Names {
+						switch {
+						case len(previousValues) == len(valueSpec.Names):
+							constants[name.Name] = previousValues[index]
+						case len(previousValues) == 1:
+							constants[name.Name] = previousValues[0]
+						}
+					}
+				}
+			case *ast.FuncDecl:
+				if decl.Name.Name != "EnumValues" || decl.Recv == nil || len(decl.Recv.List) == 0 {
+					continue
+				}
+				if receiver := fieldTypeIdent(decl.Recv.List[0].Type); receiver != nil {
+					methods[receiver.Name] = decl
+				}
+			}
+		}
+	}
+
+	result := make(map[string][]string, len(methods))
+	for typeName, method := range methods {
+		if values, ok := enumValuesFromMethod(method, constants); ok {
+			result[typeName] = values
+		}
+	}
+	return result
+}
+
+func enumValuesFromMethod(method *ast.FuncDecl, constants map[string]ast.Expr) ([]string, bool) {
+	if method.Body == nil {
+		return nil, false
+	}
+	for _, statement := range method.Body.List {
+		ret, ok := statement.(*ast.ReturnStmt)
+		if !ok || len(ret.Results) != 1 {
+			continue
+		}
+		values, ok := ret.Results[0].(*ast.CompositeLit)
+		if !ok {
+			continue
+		}
+		array, ok := values.Type.(*ast.ArrayType)
+		if !ok || array.Len != nil {
+			continue
+		}
+		elementType, ok := array.Elt.(*ast.Ident)
+		if !ok || elementType.Name != "string" {
+			continue
+		}
+		result := make([]string, 0, len(values.Elts))
+		for _, element := range values.Elts {
+			value, ok := resolveStringConstant(element, constants, map[string]bool{})
+			if !ok {
+				return nil, false
+			}
+			result = append(result, value)
+		}
+		return result, true
+	}
+	return nil, false
+}
+
+func resolveStringConstant(expr ast.Expr, constants map[string]ast.Expr, active map[string]bool) (string, bool) {
+	switch expr := expr.(type) {
+	case *ast.BasicLit:
+		if expr.Kind != token.STRING {
+			return "", false
+		}
+		value, err := strconv.Unquote(expr.Value)
+		return value, err == nil
+	case *ast.Ident:
+		constant, ok := constants[expr.Name]
+		if !ok || active[expr.Name] {
+			return "", false
+		}
+		active[expr.Name] = true
+		value, ok := resolveStringConstant(constant, constants, active)
+		delete(active, expr.Name)
+		return value, ok
+	case *ast.ParenExpr:
+		return resolveStringConstant(expr.X, constants, active)
+	case *ast.CallExpr:
+		name, ok := expr.Fun.(*ast.Ident)
+		if !ok || name.Name != "string" || len(expr.Args) != 1 {
+			return "", false
+		}
+		return resolveStringConstant(expr.Args[0], constants, active)
+	case *ast.BinaryExpr:
+		if expr.Op != token.ADD {
+			return "", false
+		}
+		left, ok := resolveStringConstant(expr.X, constants, active)
+		if !ok {
+			return "", false
+		}
+		right, ok := resolveStringConstant(expr.Y, constants, active)
+		return left + right, ok
+	default:
+		return "", false
+	}
 }
 
 func formatType(expr ast.Expr) string {
@@ -234,59 +374,34 @@ func structTypeIdent(expr ast.Expr) *ast.Ident {
 	}
 }
 
-// reflectStructTagLookup extracts the value for key from a raw struct tag
-// string without requiring the reflect.StructTag type (which needs the
-// tag to come from a compiled type).
-func reflectStructTagLookup(tag, key string) string {
-	return string(structTag(tag).lookup(key))
-}
-
-type structTag string
-
-func (tag structTag) lookup(key string) string {
-	t := string(tag)
-	for t != "" {
-		t = strings.TrimLeft(t, " \t")
-		if t == "" {
-			break
-		}
-		i := 0
-		for i < len(t) && t[i] > ' ' && t[i] != ':' && t[i] != '"' && t[i] != 0x7f {
-			i++
-		}
-		if i == 0 || i+1 >= len(t) || t[i] != ':' || t[i+1] != '"' {
-			break
-		}
-		name := t[:i]
-		t = t[i+1:]
-
-		i = 1
-		for i < len(t) && t[i] != '"' {
-			if t[i] == '\\' {
-				i++
-			}
-			i++
-		}
-		if i >= len(t) {
-			break
-		}
-		qvalue := t[:i+1]
-		t = t[i+1:]
-
-		if name == key {
-			value, err := strconv.Unquote(qvalue)
-			if err != nil {
-				return ""
-			}
-			return value
-		}
+func fieldTypeIdent(expr ast.Expr) *ast.Ident {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t
+	case *ast.StarExpr:
+		return fieldTypeIdent(t.X)
+	case *ast.ArrayType:
+		return fieldTypeIdent(t.Elt)
+	default:
+		return nil
 	}
-	return ""
 }
 
-// InjectIntoFile replaces the content between markerBlockStart and
-// markerBlockEnd in path with content, preserving everything else.
-func InjectIntoFile(path, content, markerBlockStart, markerBlockEnd string) error {
+// WriteFile writes content to path with 0o644 permissions, wrapping any
+// error with the path for context.
+func WriteFile(path, content string) error {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	return nil
+}
+
+// InjectIntoFile replaces the content between the `<!-- label:start -->` and
+// `<!-- label:end -->` markers in path with content, preserving everything else.
+func InjectIntoFile(path, content, label string) error {
+	markerBlockStart := buildMarkerTag(label, MARKER_TAG_BEGIN)
+	markerBlockEnd := buildMarkerTag(label, MARKER_TAG_END)
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", path, err)
@@ -301,10 +416,9 @@ func InjectIntoFile(path, content, markerBlockStart, markerBlockEnd string) erro
 
 	before := fileContent[:startIdx+len(markerBlockStart)]
 	after := fileContent[endIdx:]
-	newContent := before + "\n" + content + "\n" + after
+	return WriteFile(path, before+"\n"+content+"\n"+after)
+}
 
-	if err := os.WriteFile(path, []byte(newContent), 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", path, err)
-	}
-	return nil
+func buildMarkerTag(label, tag string) string {
+	return MARKER_TAG_PREFIX + label + tag + MARKER_TAG_SUFFIX
 }

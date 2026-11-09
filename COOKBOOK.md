@@ -14,6 +14,8 @@ Task-oriented recipes for things that come up once you're past the basic setup i
     - [How do I know how long parsing took?](#how-do-i-know-how-long-parsing-took)
   - [Validation](#validation)
     - [How can I validate my parameters?](#how-can-i-validate-my-parameters)
+    - [How do I define enum-like values?](#how-do-i-define-enum-like-values)
+    - [How do I parse a custom type from text with `encoding.TextUnmarshaler`?](#how-do-i-parse-a-custom-type-from-text-with-encodingtextunmarshaler)
     - [How do I express "this flag needs that one" or "these two are exclusive"?](#how-do-i-express-this-flag-needs-that-one-or-these-two-are-exclusive)
   - [Hooks](#hooks)
     - [How do I rewrite or inject arguments before parsing?](#how-do-i-rewrite-or-inject-arguments-before-parsing)
@@ -140,6 +142,63 @@ argweave supports two kinds of custom, whole-configuration validators, both run 
    ```
 
 Both are equivalent in effect — use whichever fits how the config type is defined. If both are present, both run and their errors are joined together.
+
+### How do I define enum-like values?
+
+Implement `argweave.Enum` on the field type and return its allowed input strings. argweave rejects values outside that list and includes the choices in runtime `--help` and `weavehelp` output. `weavehelp` can resolve string literals, constants, `string(CONSTANT)` conversions, and concatenations in the returned slice; computed values are only available at runtime:
+
+```go
+type Mode string
+
+const (
+    MODE_FAST Mode = "fast"
+    MODE_SAFE Mode = "safe"
+)
+
+func (*Mode) EnumValues() []string {
+    return []string{string(MODE_FAST), string(MODE_SAFE)}
+}
+
+type Config struct {
+    Mode Mode `arg:"long=mode,default=fast,help=Execution mode"`
+}
+```
+
+`EnumValues` is called on a zero value while the parser is created. For enums backed by integers where users should enter symbolic names, see the next recipe.
+
+### How do I parse a custom type from text with `encoding.TextUnmarshaler`?
+
+Implement `encoding.TextUnmarshaler` on the field type (pointer receiver). argweave calls `UnmarshalText` with the raw flag or config value, so you can convert user input into any Go type, such as a symbolic name into an integer:
+
+```go
+type Level int
+
+const (
+    LevelDebug Level = iota
+    LevelInfo
+    LevelWarn
+)
+
+func (l *Level) UnmarshalText(text []byte) error {
+    switch strings.ToLower(string(text)) {
+    case "debug":
+        *l = LevelDebug
+    case "info":
+        *l = LevelInfo
+    case "warn":
+        *l = LevelWarn
+    default:
+        return fmt.Errorf("unknown level %q", text)
+    }
+    return nil
+}
+
+type Config struct {
+    Level Level `arg:"long=level,default=info,help=Log level"`
+}
+```
+
+Returning an error from `UnmarshalText` makes argweave report it as an invalid value for that flag. If the type also implements `argweave.Value` (`Set(string) error`), argweave prefers `Set`.
 
 ### How do I express "this flag needs that one" or "these two are exclusive"?
 

@@ -34,6 +34,36 @@ type Config struct {
 	}
 }
 
+func TestRunDisplaysStaticEnumValues(t *testing.T) {
+	source := writeSource(t, `package sample
+
+type Mode string
+
+const (
+    MODE_FAST Mode = "fast"
+    MODE_SAFE Mode = "safe"
+)
+
+func (*Mode) EnumValues() []string {
+    return []string{string(MODE_FAST), string(MODE_SAFE)}
+}
+
+type Config struct {
+    Mode Mode `+"`arg:\"long=mode,help=Execution mode\"`"+`
+}
+`)
+	output := filepath.Join(t.TempDir(), "help.txt")
+	if err := run("Config", source, output, "", "", "myapp", "", "", false, false, false, false, false); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	if !strings.Contains(string(data), "values: fast, safe") {
+		t.Fatalf("help output missing static enum values:\n%s", data)
+	}
+}
 func TestRunInjectsBetweenMarkers(t *testing.T) {
 	source := writeSource(t, "package sample\ntype Config struct { Port int `arg:\"short=p,long=port\"` }\n")
 	readme := filepath.Join(t.TempDir(), "README.md")
