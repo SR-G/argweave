@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	argweave "github.com/SR-G/argweave"
 )
 
 func TestRunGeneratesFullHelpPage(t *testing.T) {
@@ -16,7 +18,7 @@ type Config struct {
 }
 `)
 	output := filepath.Join(t.TempDir(), "help.txt")
-	if err := run("Config", source, output, "", "", "myapp", "1.0.0", "My app", false, false, false, false, false); err != nil {
+	if err := run("Config", source, output, "", "", "myapp", "1.0.0", "My app", false, false, false, false, false, argweave.HELP_MAX_WIDTH_NONE); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	data, err := os.ReadFile(output)
@@ -53,7 +55,7 @@ type Config struct {
 }
 `)
 	output := filepath.Join(t.TempDir(), "help.txt")
-	if err := run("Config", source, output, "", "", "myapp", "", "", false, false, false, false, false); err != nil {
+	if err := run("Config", source, output, "", "", "myapp", "", "", false, false, false, false, false, argweave.HELP_MAX_WIDTH_NONE); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	data, err := os.ReadFile(output)
@@ -70,7 +72,7 @@ func TestRunInjectsBetweenMarkers(t *testing.T) {
 	if err := os.WriteFile(readme, []byte("before\n<!-- weavehelp:start -->\nold\n<!-- weavehelp:end -->\nafter\n"), 0o600); err != nil {
 		t.Fatalf("write readme: %v", err)
 	}
-	if err := run("Config", source, "", readme, "", "myapp", "", "", false, false, true, true, false); err != nil {
+	if err := run("Config", source, "", readme, "", "myapp", "", "", false, false, true, true, false, argweave.HELP_MAX_WIDTH_NONE); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	data, err := os.ReadFile(readme)
@@ -93,10 +95,10 @@ func TestRunInjectsBetweenMarkers(t *testing.T) {
 }
 
 func TestRunRequiresTypeAndDestination(t *testing.T) {
-	if err := run("", "file.go", "out.txt", "", "", "", "", "", false, false, false, false, false); err == nil {
+	if err := run("", "file.go", "out.txt", "", "", "", "", "", false, false, false, false, false, argweave.HELP_MAX_WIDTH_NONE); err == nil {
 		t.Fatalf("expected error when -type is missing")
 	}
-	if err := run("Config", "file.go", "", "", "", "", "", "", false, false, false, false, false); err == nil {
+	if err := run("Config", "file.go", "", "", "", "", "", "", false, false, false, false, false, argweave.HELP_MAX_WIDTH_NONE); err == nil {
 		t.Fatalf("expected error when neither -out nor -edit is set")
 	}
 }
@@ -109,7 +111,7 @@ type Config struct {
 }
 `)
 	output := filepath.Join(t.TempDir(), "help.md")
-	if err := run("Config", source, output, "", "", "myapp", "", "", false, false, false, true, true); err != nil {
+	if err := run("Config", source, output, "", "", "myapp", "", "", false, false, false, true, true, argweave.HELP_MAX_WIDTH_NONE); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	data, err := os.ReadFile(output)
@@ -123,6 +125,28 @@ type Config struct {
 	for _, want := range []string{"**USAGE:**", "**OPTIONS:**", "**SERVER:**", "**-p, --port <PORT>**"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("help text missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestRunWrapsAtMaxWidth(t *testing.T) {
+	source := writeSource(t, `package sample
+
+type Config struct {
+    Port int `+"`arg:\"short=p,long=port,help=Port to listen on for incoming connections from every client\"`"+`
+}
+`)
+	output := filepath.Join(t.TempDir(), "help.txt")
+	if err := run("Config", source, output, "", "", "myapp", "", "", false, false, false, false, false, 60); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
+		if len(line) > 60 {
+			t.Fatalf("line exceeds -max-width=60 (%d): %q\n%s", len(line), line, data)
 		}
 	}
 }

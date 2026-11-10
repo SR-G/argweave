@@ -47,6 +47,7 @@ Aside from TOML parsing, argweave is dependency-free.
     - [Providers: choosing and ordering value sources](#providers-choosing-and-ordering-value-sources)
     - [Instanciation](#instanciation)
     - [Bold `--help` sections, like clap](#bold---help-sections-like-clap)
+    - [`--help` max width](#--help-max-width)
     - [Config files (`argweave.ProviderFile`)](#config-files-argweaveproviderfile)
     - [Inspecting resolved values](#inspecting-resolved-values)
   - [Feature 3 — `--help` / `-h`, `--version` / `-V`, and `--print-config`](#feature-3----help---h---version---v-and---print-config)
@@ -59,6 +60,7 @@ Aside from TOML parsing, argweave is dependency-free.
   - [Feature 5 — Generating static `--help` text with `go generate`](#feature-5--generating-static---help-text-with-go-generate)
     - [Edit mode (`-edit`)](#edit-mode--edit-1)
     - [Bold Markdown output (`-markdown-bold`)](#bold-markdown-output--markdown-bold)
+    - [Max width (`-max-width`)](#max-width--max-width)
   - [Examples](#examples)
   - [Design notes / limitations](#design-notes--limitations)
   - [Dev Activities](#dev-activities)
@@ -345,6 +347,24 @@ parser, err := argweave.New(&cfg, argweave.AppConfig{
 })
 ```
 
+### `--help` max width
+
+`AppConfig.HelpMaxWidth` caps the line width of `--help`. Long help text and the description are wrapped at word boundaries, and continuation lines are aligned with the help column:
+
+| Value                          | Behavior                                                                                                   |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `argweave.HELP_MAX_WIDTH_AUTO` | Default (also used when left `0`). Uses `$COLUMNS`, then the stdout terminal width; no wrapping if neither is available. |
+| `argweave.HELP_MAX_WIDTH_NONE` | Never wrap.                                                                                                |
+| any positive number            | Wrap at that many columns.                                                                                 |
+
+When the flag column leaves fewer than 20 columns for the help text, each option's help moves to its own indented line below the flag. Words longer than the available width, such as URLs, are never split and overflow on their own line. Widths are counted in runes, so non-ASCII flags and help text stay aligned.
+
+```go
+parser, err := argweave.New(&cfg, argweave.AppConfig{
+    HelpMaxWidth: 100,
+})
+```
+
 The process-level wrapper uses `AppConfig.ExitCodes`. Customize the standard mapping when an application follows a different CLI exit-code convention:
 
 ```go
@@ -397,7 +417,7 @@ parser, err := argweave.New(&cfg, argweave.AppConfig{
 })
 ```
 
-Parsing TOML uses the [`github.com/BurntSushi/toml`](https://github.com/BurntSushi/toml) package, argweave's only third-party dependency, needed because the Go standard library has no TOML support. JSON decoding uses the standard library's `encoding/json`. The resolution logic for every provider (env, flags, file, default) lives in the internal `providers/` package, one file per provider (`providers/env.go`, `providers/flags.go`, `providers/file.go`, and `providers/default.go`).
+Parsing TOML uses the [`github.com/BurntSushi/toml`](https://github.com/BurntSushi/toml) package, needed because the Go standard library has no TOML support; besides it, argweave only depends on [`golang.org/x/term`](https://pkg.go.dev/golang.org/x/term) to detect the terminal width for `--help`. JSON decoding uses the standard library's `encoding/json`. The resolution logic for every provider (env, flags, file, default) lives in the internal `providers/` package, one file per provider (`providers/env.go`, `providers/flags.go`, `providers/file.go`, and `providers/default.go`).
 
 
 ### Inspecting resolved values
@@ -625,6 +645,14 @@ Pass `-markdown-bold` to render section headers, group headers, and flag/argumen
 
 ```bash
 go run github.com/SR-G/argweave/cmd/weavehelp -type=Config -file=config.go -name=myapp -markdown-bold -out=docs/HELP.md
+```
+
+### Max width (`-max-width`)
+
+`-max-width` mirrors `AppConfig.HelpMaxWidth`. It defaults to `-1` (auto-detection from `$COLUMNS`, then the terminal width, with no wrapping when neither is available). Because auto-detection makes the output depend on the terminal running `go generate`, pass an explicit width for committed files:
+
+```bash
+go run github.com/SR-G/argweave/cmd/weavehelp -type=Config -file=config.go -name=myapp -max-width=100 -out=docs/HELP.txt
 ```
 
 

@@ -150,6 +150,98 @@ func TestHelpColorModes(t *testing.T) {
 	}
 }
 
+func TestHelpMaxWidthWrapsHelpColumn(t *testing.T) {
+	help := argweave.RenderHelpPage(argweave.HelpPageOptions{
+		Name:        "app",
+		Description: "A description that is long enough to be wrapped at sixty columns wide.",
+		Options: []argweave.HelpEntry{{
+			FieldSpec: argweave.FieldSpec{Long: "port", Help: "Port to listen on for incoming connections"},
+		}},
+		DisableHelp:    true,
+		DisableVersion: true,
+		MaxWidth:       60,
+	})
+	continuation := strings.Repeat(" ", 24)
+	want := "app\n" +
+		"A description that is long enough to be wrapped at sixty\ncolumns wide.\n\n" +
+		"USAGE:\n    app [OPTIONS]\n\n" +
+		"OPTIONS:\n" +
+		"        --port <PORT>   Port to listen on for incoming\n" +
+		continuation + "connections\n" +
+		"        --print-config  Print the resolved configuration as\n" +
+		continuation + "JSON"
+	if help != want {
+		t.Fatalf("unexpected wrapped help:\n%s\nwant:\n%s", help, want)
+	}
+}
+
+func TestHelpMaxWidthFallsBackToNextLine(t *testing.T) {
+	help := argweave.RenderHelpPage(argweave.HelpPageOptions{
+		Name: "app",
+		Options: []argweave.HelpEntry{{
+			FieldSpec: argweave.FieldSpec{Long: "a-very-long-option-name", ValueNameInHelpDescription: "some-long-placeholder", Help: "Short help"},
+		}},
+		DisableHelp:    true,
+		DisableVersion: true,
+		MaxWidth:       50,
+	})
+	for _, want := range []string{
+		"\n        --a-very-long-option-name <SOME-LONG-PLACEHOLDER>\n            Short help\n",
+		"\n        --print-config\n            Print the resolved configuration as\n            JSON",
+	} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("expected next-line layout %q:\n%s", want, help)
+		}
+	}
+}
+
+func TestHelpMaxWidthOverflowsLongWordsAndCountsRunes(t *testing.T) {
+	url := "https://example.com/a/very/long/path/that/cannot/be/broken"
+	help := argweave.RenderHelpPage(argweave.HelpPageOptions{
+		Name: "app",
+		Options: []argweave.HelpEntry{
+			{FieldSpec: argweave.FieldSpec{Long: "endpoint", Help: "Endpoint " + url}},
+			{FieldSpec: argweave.FieldSpec{Long: "café", Help: "Accented flag"}, IsBool: true},
+		},
+		DisableHelp:    true,
+		DisableVersion: true,
+		MaxWidth:       60,
+	})
+	if !strings.Contains(help, "Endpoint\n"+strings.Repeat(" ", 31)+url+"\n") {
+		t.Fatalf("expected URL to overflow unbroken on its own line:\n%s", help)
+	}
+	if !strings.Contains(help, "\n        --café"+strings.Repeat(" ", 17)+"Accented flag\n") {
+		t.Fatalf("expected rune-based alignment for non-ASCII flag:\n%s", help)
+	}
+}
+
+func TestHelpMaxWidthAutoAndNone(t *testing.T) {
+	t.Setenv("COLUMNS", "50")
+	newHelp := func(maxWidth int) string {
+		var cfg testConfig
+		parser, err := argweave.New(&cfg, argweave.AppConfig{Name: "testapp", HelpMaxWidth: maxWidth})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		return parser.GenerateHelp()
+	}
+	longestLine := func(text string) int {
+		longest := 0
+		for _, line := range strings.Split(text, "\n") {
+			longest = max(longest, len(line))
+		}
+		return longest
+	}
+	for _, maxWidth := range []int{0, argweave.HELP_MAX_WIDTH_AUTO} {
+		if got := longestLine(newHelp(maxWidth)); got > 50 {
+			t.Fatalf("HelpMaxWidth=%d: expected $COLUMNS=50 to cap lines, got %d", maxWidth, got)
+		}
+	}
+	if got := longestLine(newHelp(argweave.HELP_MAX_WIDTH_NONE)); got <= 50 {
+		t.Fatalf("expected HELP_MAX_WIDTH_NONE to disable wrapping, longest line %d", got)
+	}
+}
+
 func TestEmptyEnvironmentFallsThrough(t *testing.T) {
 	t.Setenv("ARGWEAVE_EMPTY", "")
 	var cfg struct {

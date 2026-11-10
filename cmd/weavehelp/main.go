@@ -27,6 +27,10 @@
 // names with Markdown `**bold**` syntax (mirroring the bold ANSI output of
 // a real terminal --help) and implies -code-block=false, since bold
 // markers have no effect inside a fenced code block.
+//
+// -max-width wraps the help text like the runtime AppConfig.HelpMaxWidth;
+// the default (-1) auto-detects the terminal width, so pass an explicit
+// width for reproducible generated files.
 package main
 
 import (
@@ -60,16 +64,17 @@ func main() {
 		noConfigFlag   = flag.Bool("no-config-flag", false, "omit the -c/--config flag, set this when ProviderFile is disabled in AppConfig.Providers")
 		codeBlock      = flag.Bool("code-block", true, "wrap the generated text in a fenced ``` code block")
 		markdownBold   = flag.Bool("markdown-bold", false, "render headers and flag/argument names in Markdown **bold**; implies -code-block=false")
+		maxWidth       = flag.Int("max-width", argweave.HELP_MAX_WIDTH_AUTO, "wrap the help text at this many columns; -1 auto-detects the terminal width ($COLUMNS, then stdout), without wrapping when undetectable")
 	)
 	flag.Parse()
 
-	if err := run(*typeName, *file, *out, *edit, *marker, *name, *version, *description, *disableHelp, *disableVersion, *noConfigFlag, *codeBlock, *markdownBold); err != nil {
+	if err := run(*typeName, *file, *out, *edit, *marker, *name, *version, *description, *disableHelp, *disableVersion, *noConfigFlag, *codeBlock, *markdownBold, *maxWidth); err != nil {
 		fmt.Fprintln(os.Stderr, "weavehelp:", err)
 		os.Exit(1)
 	}
 }
 
-func run(typeName, file, out, edit, marker, name, version, description string, disableHelp, disableVersion, noConfigFlag, codeBlock, markdownBold bool) error {
+func run(typeName, file, out, edit, marker, name, version, description string, disableHelp, disableVersion, noConfigFlag, codeBlock, markdownBold bool, maxWidth int) error {
 	if err := docgen.RequireSource(typeName, file); err != nil {
 		return err
 	}
@@ -110,6 +115,7 @@ func run(typeName, file, out, edit, marker, name, version, description string, d
 		DisableVersion:      disableVersion,
 		FileProviderEnabled: !noConfigFlag,
 		Markup:              markup,
+		MaxWidth:            maxWidth,
 	})
 	content := text
 	if codeBlock {

@@ -2,8 +2,30 @@ package argweave
 
 import (
 	"fmt"
+	"math"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode/utf8"
+
+	"golang.org/x/term"
+)
+
+const (
+	// HELP_MAX_WIDTH_AUTO wraps the help page at the terminal width ($COLUMNS,
+	// then the size of stdout), without wrapping when neither is available.
+	// This is the default: a zero (unset) max width also means auto.
+	HELP_MAX_WIDTH_AUTO = -1
+	// HELP_MAX_WIDTH_NONE disables wrapping.
+	HELP_MAX_WIDTH_NONE = math.MaxInt
+
+	// HELP_MIN_COLUMN_WIDTH is the narrowest help column kept beside the
+	// flags; below it, help text moves to its own line under each flag.
+	HELP_MIN_COLUMN_WIDTH = 20
+	HELP_ROW_INDENT       = 4
+	HELP_COLUMN_GAP       = 2
+	HELP_NEXT_LINE_INDENT = 12
 )
 
 // HelpRenderer renders the --help page for a Parser. Assign a custom
@@ -81,6 +103,11 @@ type HelpPageOptions struct {
 	// Markup selects how section headers, group headers, and flag/argument
 	// names are emphasized. Defaults to HelpMarkupNone (plain text).
 	Markup HelpMarkup
+
+	// MaxWidth is the maximum line width: a positive column count,
+	// HELP_MAX_WIDTH_AUTO (default, also used when zero), or
+	// HELP_MAX_WIDTH_NONE. Words longer than the width overflow unbroken.
+	MaxWidth int
 }
 
 // RenderHelpPage renders a clap-style --help page from opts. It is used
@@ -88,6 +115,7 @@ type HelpPageOptions struct {
 // doc-generation tools that only have a struct's `arg` tags to work with.
 func RenderHelpPage(opts HelpPageOptions) string {
 	var b strings.Builder
+	maxWidth := resolveHelpMaxWidth(opts.MaxWidth)
 
 	name := opts.Name
 	if name == "" {
@@ -101,16 +129,22 @@ func RenderHelpPage(opts HelpPageOptions) string {
 	b.WriteString(header)
 	b.WriteString("\n")
 	if opts.Description != "" {
-		b.WriteString(opts.Description)
-		b.WriteString("\n")
+		for _, line := range strings.Split(opts.Description, "\n") {
+			for _, wrapped := range wrapText(line, maxWidth) {
+				b.WriteString(wrapped)
+				b.WriteString("\n")
+			}
+		}
 	}
 	b.WriteString("\n")
 
-	b.WriteString(bold("USAGE:", opts.Markup) + "\n")
+	b.WriteString(bold("USAGE:", opts.Markup))
+	b.WriteString("\n")
 	fmt.Fprintf(&b, "    %s [OPTIONS]%s\n\n", name, usagePositionalSuffix(opts.Positional))
 
 	if len(opts.Positional) > 0 {
-		b.WriteString(bold("ARGS:", opts.Markup) + "\n")
+		b.WriteString(bold("ARGS:", opts.Markup))
+		b.WriteString("\n")
 		var argRows []helpRow
 		for _, e := range opts.Positional {
 			if e.Hidden {
@@ -118,7 +152,7 @@ func RenderHelpPage(opts HelpPageOptions) string {
 			}
 			argRows = append(argRows, helpRow{rowType: HELP_ROW_ENTRY, left: positionalLeftColumn(e), help: helpText(e)})
 		}
-		writeRows(&b, argRows, opts.Markup)
+		writeRows(&b, argRows, opts.Markup, maxWidth)
 		b.WriteString("\n")
 	}
 
@@ -184,8 +218,9 @@ func RenderHelpPage(opts HelpPageOptions) string {
 	}
 	rows = append(rows, helpRow{rowType: HELP_ROW_ENTRY, left: helpLeftColumn("", "print-config", true, ""), help: "Print the resolved configuration as JSON"})
 
-	b.WriteString(bold("OPTIONS:", opts.Markup) + "\n")
-	writeRows(&b, rows, opts.Markup)
+	b.WriteString(bold("OPTIONS:", opts.Markup))
+	b.WriteString("\n")
+	writeRows(&b, rows, opts.Markup, maxWidth)
 
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -214,7 +249,60 @@ func (defaultHelpRenderer) RenderHelp(p *Parser) string {
 		DisableVersion:      p.app.DisableVersion,
 		FileProviderEnabled: p.fileProviderEnabled,
 		Markup:              helpMarkupFor(p.app.Color),
+		MaxWidth:            p.app.HelpMaxWidth,
 	})
+}
+
+// resolveHelpMaxWidth turns a HelpPageOptions.MaxWidth setting into an
+// effective column count, HELP_MAX_WIDTH_NONE meaning "do not wrap".
+func resolveHelpMaxWidth(maxWidth int) int {
+	if maxWidth > 0 {
+		return maxWidth
+	}
+	if columns, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && columns > 0 {
+		return columns
+	}
+	if width, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && width > 0 {
+		return width
+	}
+	return HELP_MAX_WIDTH_NONE
+}
+
+// textWidth counts runes rather than bytes, so non-ASCII text aligns.
+func textWidth(s string) int {
+	return utf8.RuneCountInString(s)
+}
+
+// wrapText splits text on spaces into lines of at most width runes; a
+// single word longer than width (e.g. a URL) overflows on its own line.
+func wrapText(text string, width int) []string {
+	if textWidth(text) <= width {
+		return []string{text}
+	}
+	var lines []string
+	var line strings.Builder
+	lineWidth := 0
+	for _, word := range strings.Fields(text) {
+		wordWidth := textWidth(word)
+		if lineWidth > 0 && lineWidth+1+wordWidth > width {
+			lines = append(lines, line.String())
+			line.Reset()
+			lineWidth = 0
+		}
+		if lineWidth > 0 {
+			line.WriteByte(' ')
+			lineWidth++
+		}
+		line.WriteString(word)
+		lineWidth += wordWidth
+	}
+	if lineWidth > 0 {
+		lines = append(lines, line.String())
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
 }
 
 // helpMarkupFor resolves an AppConfig.Color setting to the markup used by
@@ -257,16 +345,17 @@ type helpRow struct {
 	help    string
 }
 
-func writeRows(b *strings.Builder, rows []helpRow, markup HelpMarkup) {
+func writeRows(b *strings.Builder, rows []helpRow, markup HelpMarkup, maxWidth int) {
 	width := 0
 	for _, r := range rows {
 		if r.rowType != HELP_ROW_ENTRY {
 			continue
 		}
-		if len(r.left) > width {
-			width = len(r.left)
-		}
+		width = max(width, textWidth(r.left))
 	}
+	helpColumn := HELP_ROW_INDENT + width + HELP_COLUMN_GAP
+	nextLine := maxWidth-helpColumn < HELP_MIN_COLUMN_WIDTH
+	rowIndent := strings.Repeat(" ", HELP_ROW_INDENT)
 	for index, r := range rows {
 		switch r.rowType {
 		case HELP_ROW_BLANK:
@@ -276,9 +365,23 @@ func writeRows(b *strings.Builder, rows []helpRow, markup HelpMarkup) {
 				b.WriteString("\n")
 			}
 			fmt.Fprintf(b, "    %s\n", bold(r.left, markup))
-		default:
-			pad := strings.Repeat(" ", width-len(r.left))
-			fmt.Fprintf(b, "    %s%s  %s\n", bold(r.left, markup), pad, r.help)
+		case HELP_ROW_ENTRY:
+			if nextLine {
+				fmt.Fprintf(b, "%s%s\n", rowIndent, bold(r.left, markup))
+				if r.help == "" {
+					continue
+				}
+				for _, line := range wrapText(r.help, maxWidth-HELP_NEXT_LINE_INDENT) {
+					fmt.Fprintf(b, "%s%s\n", strings.Repeat(" ", HELP_NEXT_LINE_INDENT), line)
+				}
+				continue
+			}
+			lines := wrapText(r.help, maxWidth-helpColumn)
+			pad := strings.Repeat(" ", width-textWidth(r.left)+HELP_COLUMN_GAP)
+			fmt.Fprintf(b, "%s%s%s%s\n", rowIndent, bold(r.left, markup), pad, lines[0])
+			for _, line := range lines[1:] {
+				fmt.Fprintf(b, "%s%s\n", strings.Repeat(" ", helpColumn), line)
+			}
 		}
 	}
 }

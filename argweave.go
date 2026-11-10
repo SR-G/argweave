@@ -176,6 +176,10 @@ type AppConfig struct {
 	// which enables it only when stdout is a terminal and NO_COLOR is
 	// unset.
 	Color ColorMode
+	// HelpMaxWidth caps the --help line width, wrapping descriptions and
+	// help text. Defaults to HELP_MAX_WIDTH_AUTO (also used when left 0);
+	// set HELP_MAX_WIDTH_NONE to disable wrapping.
+	HelpMaxWidth int
 	// Validate is an optional callback for validating a configuration type
 	// that cannot implement Validator directly. All returned non-nil errors
 	// are reported together after parsing.
